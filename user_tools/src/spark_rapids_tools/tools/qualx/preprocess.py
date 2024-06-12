@@ -27,7 +27,8 @@ from spark_rapids_tools.tools.qualx.util import (
     get_cache_dir,
     get_logger,
     get_dataset_platforms,
-    run_profiler_tool, log_fallback,
+    log_fallback,
+    run_qualification_tool,
 )
 
 PREPROCESSED_FILE = 'preprocessed.parquet'
@@ -229,21 +230,19 @@ def load_datasets(
                 profile_df = profile_df.loc[profile_df['appName'].isin(dataset_keys)]
         else:
             # otherwise, check for cached profiler output
-            profile_dir = f'{platform_cache}/profile'
-            ensure_directory(profile_dir)
-            profiles = os.listdir(profile_dir)
+            profiles = os.listdir(platform_cache)
 
-            # run the profiler on eventlogs, if not already cached
+            # run the profiler/qualification on eventlogs, if not already cached
             for ds_name, ds_meta in datasets.items():
                 if ds_name not in profiles:
                     eventlogs = ds_meta['eventlogs']
                     for eventlog in eventlogs:
                         eventlog = os.path.expandvars(eventlog)
-                        run_profiler_tool(
-                            platform, eventlog, f'{profile_dir}/{ds_name}'
+                        run_qualification_tool(
+                            platform, eventlog, f'{platform_cache}/{ds_name}'
                         )
             # load/preprocess profiler data
-            profile_df = load_profiles(datasets, profile_dir)
+            profile_df = load_profiles(datasets, platform_cache)
             # save preprocessed dataframe to cache
             profile_df.to_parquet(f'{platform_cache}/{PREPROCESSED_FILE}')
 

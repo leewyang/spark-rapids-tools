@@ -641,25 +641,21 @@ def evaluate(
     cache_dir = get_cache_dir()
 
     platform_cache = f'{cache_dir}/{platform}'
-    profile_dir = f'{platform_cache}/profile'
-    qual_dir = f'{platform_cache}/qual'
-    ensure_directory(qual_dir)
-
-    quals = os.listdir(qual_dir)
+    quals = os.listdir(platform_cache)
     for ds_name, ds_meta in datasets.items():
         if ds_name not in quals:
             eventlogs = ds_meta['eventlogs']
             for eventlog in eventlogs:
                 eventlog = os.path.expandvars(eventlog)
-                run_qualification_tool(platform, eventlog, f'{qual_dir}/{ds_name}')
+                run_qualification_tool(platform, eventlog, f'{platform_cache}/{ds_name}')
 
     logger.info('Loading qualification tool CSV files.')
-    node_level_supp, qualtool_output, qual_sql_preds, _ = _get_qual_data(qual_dir)
+    node_level_supp, qualtool_output, qual_sql_preds, _ = _get_qual_data(platform_cache)
 
     logger.info('Loading profiler tool CSV files.')
-    profile_df = load_profiles(datasets, profile_dir)  # w/ GPU rows
+    profile_df = load_profiles(datasets, platform_cache)  # w/ GPU rows
     filtered_profile_df = load_profiles(
-        datasets, profile_dir, node_level_supp, qualtool_filter, qualtool_output
+        datasets, platform_cache, node_level_supp, qualtool_filter, qualtool_output
     )  # w/o GPU rows
     if profile_df.empty:
         raise ValueError(f'Warning: No profile data found for {dataset}')

@@ -190,32 +190,6 @@ def random_string(length: int) -> str:
     return ''.join(secrets.choice(string.hexdigits) for _ in range(length))
 
 
-def run_profiler_tool(platform: str, eventlog: str, output_dir: str):
-    ts = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
-    output = f'{output_dir}/prof_{ts}'
-    logger.info(f'Running profiling on: {eventlog}')
-    logger.info(f'Saving output to: {output_dir}')
-
-    cmds = []
-    eventlogs = find_eventlogs(eventlog)
-    for log in eventlogs:
-        logfile = os.path.basename(log)
-        match = re.search('sf[0-9]+[k]*-', logfile)
-        if match:
-            output = f'{output_dir}/{logfile}'
-        else:
-            suffix = random_string(6)
-            output = f'{output_dir}/prof_{ts}_{suffix}'
-        cmd = (
-            # f'spark_rapids_user_tools {platform} profiling --csv --eventlogs {log} --local_folder {output}'
-            'java -Xmx64g -cp $SPARK_RAPIDS_TOOLS_JAR:$SPARK_HOME/jars/*:$SPARK_HOME/assembly/target/scala-2.12/jars/* '
-            'com.nvidia.spark.rapids.tool.profiling.ProfileMain '
-            f'--platform {platform} --csv -o {output} {log}'
-        )
-        cmds.append(cmd)
-    run_commands(cmds)
-
-
 def run_qualification_tool(platform: str, eventlog: str, output_dir: str):
     ts = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
     logger.info(f'Running qualification on: {eventlog}')
@@ -224,16 +198,32 @@ def run_qualification_tool(platform: str, eventlog: str, output_dir: str):
     cmds = []
     eventlogs = find_eventlogs(eventlog)
     for log in eventlogs:
-        # skip gpu logs, assuming /gpu appearing in path can be used to distinguis
+        # use profiler for gpu logs, assuming /gpu appearing in path can be used to distinguish
         if '/gpu' in str(log).lower():
-            continue
-        suffix = random_string(6)
-        output = f'{output_dir}/qual_{ts}_{suffix}'
+            tool = 'com.nvidia.spark.rapids.tool.profiling.ProfileMain '
+            extra_args = '--csv'
+            prefix = 'prof'
+        else:
+            tool = 'com.nvidia.spark.rapids.tool.qualification.QualificationMain '
+            extra_args = '--per-sql'
+            prefix = 'qual'
+
+        # construct output path
+        logfile = os.path.basename(log)
+        match = re.search('sf[0-9]+[k]*-', logfile)
+        if match:
+            # for query-per-app datasets, use logfile name as parent folder for globbing later
+            output = f'{output_dir}/{logfile}'
+        else:
+            # otherwise, construct standard format parent folder
+            suffix = random_string(6)
+            output = f'{output_dir}/{prefix}_{ts}_{suffix}'
+
         cmd = (
-            # f'spark_rapids_user_tools {platform} qualification --csv --per-sql --eventlogs {log} --local_folder {output}'
-            'java -Xmx32g -cp $SPARK_RAPIDS_TOOLS_JAR:$SPARK_HOME/jars/*:$SPARK_HOME/assembly/target/scala-2.12/jars/* '
-            'com.nvidia.spark.rapids.tool.qualification.QualificationMain '
-            f'--platform {platform} --per-sql -o {output} {log}'
+            # f'spark_rapids_user_tools {platform} profiling --csv --eventlogs {log} --local_folder {output}'
+            'java -Xmx64g '
+            '-cp $SPARK_RAPIDS_TOOLS_JAR:$SPARK_HOME/jars/*:$SPARK_HOME/assembly/target/scala-2.12/jars/* '
+            f'{tool} --platform {platform} {extra_args} -o {output} {log}'
         )
         cmds.append(cmd)
     run_commands(cmds)
