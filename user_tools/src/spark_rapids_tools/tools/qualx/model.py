@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-""" Model training and prediction functions for QualX """
+"""Model training and prediction functions for QualX"""
 
 from typing import Callable, Optional, List, Tuple
 import json
@@ -24,6 +24,7 @@ import xgboost as xgb
 from xgboost import Booster
 from spark_rapids_tools.tools.qualx.preprocess import expected_raw_features
 from spark_rapids_tools.tools.qualx.util import get_logger
+
 # Import optional packages
 try:
     import optuna
@@ -52,7 +53,12 @@ ignored_features = {
     'sqlID'
 }
 
-expected_model_features = expected_raw_features - ignored_features
+# these need to be supplied at prediction time
+gpu_features = {
+    'vCPU_gpu', 'CPU_coremark_gpu', 'CPU_memory_gpu', 'network_bandwidth_gpu',
+}
+
+expected_model_features = ( expected_raw_features | gpu_features ) - ignored_features
 
 
 def train(
@@ -64,9 +70,7 @@ def train(
 ) -> Booster:
     """Train model on preprocessed data."""
     if 'split' not in cpu_aug_tbl.columns:
-        raise ValueError(
-            'Training data must have a split column with values: train, val, test'
-        )
+        raise ValueError('Training data must have a split column with values: train, val, test')
 
     if LOG_LABEL:
         cpu_aug_tbl = cpu_aug_tbl.copy()
@@ -74,13 +78,9 @@ def train(
 
     # remove nan label entries
     original_num_rows = cpu_aug_tbl.shape[0]
-    cpu_aug_tbl = cpu_aug_tbl.loc[~cpu_aug_tbl[label_col].isna()].reset_index(
-        drop=True
-    )
+    cpu_aug_tbl = cpu_aug_tbl.loc[~cpu_aug_tbl[label_col].isna()].reset_index(drop=True)
     if cpu_aug_tbl.shape[0] < original_num_rows:
-        logger.warning(
-            'Removed %d rows with NaN label values', original_num_rows - cpu_aug_tbl.shape[0]
-        )
+        logger.warning('Removed %d rows with NaN label values', original_num_rows - cpu_aug_tbl.shape[0])
 
     # split into train/val/test sets
     x_train = cpu_aug_tbl.loc[cpu_aug_tbl['split'] == 'train', feature_cols]
@@ -107,13 +107,13 @@ def train(
         xgb_params = {}
         cfg = json.loads(base_model.save_config())
         train_params = cfg['learner']['gradient_booster']['tree_train_param']
-        xgb_params['eta'] = float(train_params['eta']) / 10.0     # decrease learning rate
+        xgb_params['eta'] = float(train_params['eta']) / 10.0  # decrease learning rate
         xgb_params['gamma'] = float(train_params['gamma'])
         xgb_params['max_depth'] = int(train_params['max_depth'])
         xgb_params['min_child_weight'] = int(train_params['min_child_weight'])
         xgb_params['subsample'] = float(train_params['subsample'])
         n_estimators = cfg['learner']['gradient_booster']['gbtree_model_param']['num_trees']
-        n_estimators = int(float(n_estimators) * 1.1)              # increase n_estimators
+        n_estimators = int(float(n_estimators) * 1.1)  # increase n_estimators
     else:
         # use optuna hyper-parameter tuning
         best_params = tune_hyperparameters(x_tune, y_tune, n_trials)
@@ -200,14 +200,10 @@ def predict(
 
     # adjust raw predictions with stage/sqlID filtering of unsupported ops
     results_df['Duration_pred'] = results_df['Duration'] * (
-        1.0
-        - results_df['fraction_supported']
-        + (results_df['fraction_supported'] / results_df['y_pred'])
+        1.0 - results_df['fraction_supported'] + (results_df['fraction_supported'] / results_df['y_pred'])
     )
     # compute fraction of duration in supported ops
-    results_df['Duration_supported'] = (
-        results_df['Duration'] * results_df['fraction_supported']
-    )
+    results_df['Duration_supported'] = results_df['Duration'] * results_df['fraction_supported']
     # compute adjusted speedup (vs. raw speedup prediction: 'y_pred')
     # without qual data, this should be the same as the raw 'y_pred'
     results_df['speedup_pred'] = results_df['Duration'] / results_df['Duration_pred']
@@ -225,19 +221,17 @@ def extract_model_features(
         logger.warning('Input dataframe is missing expected raw features: %s', missing)
 
     if FILTER_SPILLS:
-        df = df[
-            (df['diskBytesSpilledRatio'] == 0) & (df['memoryBytesSpilled_sum'] == 0)
-        ]
+        df = df[(df['diskBytesSpilledRatio'] == 0) & (df['memoryBytesSpilled_sum'] == 0)]
 
     # use CPU runs as primary dataset
     cpu_aug_tbl = df[df['runType'] == 'CPU']
+    # ignore GPU features for CPU rows
+    cpu_aug_tbl = cpu_aug_tbl.drop(columns=['GPU_TFLOPS', 'GPU_memory', 'GPU_mem_bandwidth'])
 
     # remove gpu sql operators from base cpu augmented table.
     # sql_ops_list = [cc for cc in cpu_aug_tbl.columns if cc.startswith('sqlOp_')]
     gpu_sql_ops_list = [
-        cc
-        for cc in cpu_aug_tbl.columns
-        if cc.startswith('sqlOp_Gpu') or 'GpuInsertIntoHadoopFsRelationCommand' in cc
+        cc for cc in cpu_aug_tbl.columns if cc.startswith('sqlOp_Gpu') or 'GpuInsertIntoHadoopFsRelationCommand' in cc
     ]
     cpu_aug_tbl = cpu_aug_tbl.drop(columns=gpu_sql_ops_list)
 
@@ -257,21 +251,26 @@ def extract_model_features(
                 'sqlID',
                 'Duration',
                 'description',
+                'vCPU',
+                'CPU_memory',
+                'CPU_coremark',
+                'GPU_TFLOPS',
+                'GPU_memory',
+                'GPU_mem_bandwidth',
+                'network_bandwidth',
             ]
         ]
-        gpu_aug_tbl = gpu_aug_tbl.rename(columns={'Duration': 'xgpu_Duration'})
         cpu_aug_tbl = cpu_aug_tbl.merge(
             gpu_aug_tbl,
             on=['appName', 'scaleFactor', 'sqlID', 'description'],
             how='left',
+            suffixes=[None, '_gpu'],
         )
 
         # warn for possible mismatched sqlIDs
         num_rows = len(cpu_aug_tbl)
-        num_na = cpu_aug_tbl['xgpu_Duration'].isna().sum()
-        if (
-            num_na / num_rows > 0.05
-        ):  # arbitrary threshold, misaligned sqlIDs still may 'match' most of the time
+        num_na = cpu_aug_tbl['Duration_gpu'].isna().sum()
+        if num_na / num_rows > 0.05:  # arbitrary threshold, misaligned sqlIDs still may 'match' most of the time
             logger.warning(
                 'Percentage of NaN GPU durations is high: %d / %d. Per-sql actual speedups may be inaccurate.',
                 num_na,
@@ -279,10 +278,8 @@ def extract_model_features(
             )
 
         # calculate Duration_speedup
-        cpu_aug_tbl['Duration_speedup'] = (
-            cpu_aug_tbl['Duration'] / cpu_aug_tbl['xgpu_Duration']
-        )
-        cpu_aug_tbl = cpu_aug_tbl.drop(columns=['xgpu_Duration'])
+        cpu_aug_tbl['Duration_speedup'] = cpu_aug_tbl['Duration'] / cpu_aug_tbl['Duration_gpu']
+        cpu_aug_tbl = cpu_aug_tbl.drop(columns=['Duration_gpu'])
 
         # use Duration_speedup as label
         label_col = 'Duration_speedup'
@@ -322,25 +319,27 @@ def extract_model_features(
     return cpu_aug_tbl, feature_cols, label_col
 
 
-def split_random(
-    cpu_aug_tbl: pd.DataFrame, seed: int = 0, val_pct: float = 0.2
-) -> pd.DataFrame:
+def split_random(cpu_aug_tbl: pd.DataFrame, seed: int = 0, val_pct: float = 0.2) -> pd.DataFrame:
     # Random split by percentage
     test_pct = 0.2
     num_rows = len(cpu_aug_tbl)
     indices = list(range(num_rows))
     random.Random(seed).shuffle(indices)
 
-    cpu_aug_tbl.loc[indices[0: int(test_pct * num_rows)], 'split'] = 'test'
+    cpu_aug_tbl.loc[indices[0 : int(test_pct * num_rows)], 'split'] = 'test'
     cpu_aug_tbl.loc[
-        indices[int(test_pct * num_rows): int((test_pct + val_pct) * num_rows)],
+        indices[int(test_pct * num_rows) : int((test_pct + val_pct) * num_rows)],
         'split',
     ] = 'val'
-    cpu_aug_tbl.loc[indices[int((test_pct + val_pct) * num_rows):], 'split'] = 'train'
+    cpu_aug_tbl.loc[indices[int((test_pct + val_pct) * num_rows) :], 'split'] = 'train'
     return cpu_aug_tbl
 
 
-def split_train_val(cpu_aug_tbl: pd.DataFrame, seed: int = 0, val_pct: float = 0.2,) -> pd.DataFrame:
+def split_train_val(
+    cpu_aug_tbl: pd.DataFrame,
+    seed: int = 0,
+    val_pct: float = 0.2,
+) -> pd.DataFrame:
     """Sets all rows without a split value to 'train'."""
     if 'split' in cpu_aug_tbl.columns:
         # if 'split' already present, just modify the NaN rows
@@ -353,8 +352,8 @@ def split_train_val(cpu_aug_tbl: pd.DataFrame, seed: int = 0, val_pct: float = 0
     random.Random(seed).shuffle(indices)
 
     # Split remaining rows into train/val sets
-    cpu_aug_tbl.loc[indices[0: int(val_pct * num_rows)], 'split'] = 'val'
-    cpu_aug_tbl.loc[indices[int(val_pct * num_rows):], 'split'] = 'train'
+    cpu_aug_tbl.loc[indices[0 : int(val_pct * num_rows)], 'split'] = 'val'
+    cpu_aug_tbl.loc[indices[int(val_pct * num_rows) :], 'split'] = 'train'
     return cpu_aug_tbl
 
 
@@ -374,9 +373,7 @@ def tune_hyperparameters(x, y, n_trials: int = 200) -> dict:
         'gamma': optuna.distributions.FloatDistribution(0, 50),
         'max_depth': optuna.distributions.IntDistribution(5, 10),
         'min_child_weight': optuna.distributions.IntDistribution(1, 5),
-        'subsample': optuna.distributions.FloatDistribution(
-            0.6, 1.0
-        ),  # Helps with over fitting
+        'subsample': optuna.distributions.FloatDistribution(0.6, 1.0),  # Helps with over fitting
         'n_estimators': optuna.distributions.IntDistribution(50, 100),
     }
 
@@ -417,11 +414,7 @@ def compute_shapley_values(xgb_model: xgb.Booster, features: pd.DataFrame) -> Tu
 
     # feature importance
     shap_vals = np.abs(shap_values).mean(axis=0)
-    feature_importance_df = pd.DataFrame(
-        list(zip(feature_cols, shap_vals)), columns=['feature', 'shap_value']
-    )
-    feature_importance_df = feature_importance_df.sort_values(
-        by=['shap_value'], ascending=False
-    ).reset_index(drop=True)
+    feature_importance_df = pd.DataFrame(list(zip(feature_cols, shap_vals)), columns=['feature', 'shap_value'])
+    feature_importance_df = feature_importance_df.sort_values(by=['shap_value'], ascending=False).reset_index(drop=True)
 
     return feature_importance_df, shap_values_df

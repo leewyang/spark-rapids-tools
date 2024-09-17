@@ -78,11 +78,6 @@ expected_raw_features = \
         'output_bytesWrittenRatio',
         'output_recordsWritten_sum',
         'peakExecutionMemory_max',
-        'platform_databricks-aws',
-        'platform_databricks-azure',
-        'platform_dataproc',
-        'platform_emr',
-        'platform_onprem',
         'pluginEnabled',
         'resultSerializationTime_sum',
         'resultSize_max',
@@ -159,7 +154,29 @@ expected_raw_features = \
         'sw_writeTime_mean',
         'taskCpu',
         'taskGpu',
+        'vCPU', 'CPU_memory', 'CPU_coremark',  'GPU_TFLOPS', 'GPU_memory', 'GPU_mem_bandwidth', 'network_bandwidth'
     }
+
+new_features = [
+    'vCPU', 'CPU_memory', 'CPU_coremark',  'GPU_TFLOPS', 'GPU_memory', 'GPU_mem_bandwidth', 'network_bandwidth'
+]
+
+platform_specs = {
+    'CPU': {
+        'dataproc': [16, 60, 208193, 0, 0, 0, 32],
+        'databricks-aws': [32, 128, 203869, 0, 0, 0, 15],
+        'databricks-azure': [8, 64, 135576, 0, 0, 0, 12.5],
+        'emr': [32, 128, 203869, 0, 0, 0, 15],
+        'onprem': [96, 1536, 927322, 0, 0, 0, 100],
+    },
+    'GPU': {
+        'dataproc': [16, 64, 223514, 30.3, 24, 300, 32],
+        'databricks-aws': [32, 128, 1236894, 31.2, 24, 600, 25],
+        'databricks-azure': [8, 56, 1362910, 8.1, 16, 300, 8],
+        'emr': [32, 128, 1236894, 31.2, 24, 600, 25],
+        'onprem': [96, 1536, 927322, 15.7, 32, 900, 100],
+    }
+}
 
 
 def load_datasets(
@@ -368,9 +385,11 @@ def load_profiles(
             )
             raw_features.drop(columns=['jobName'], inplace=True)
 
-        # add platform from app_meta
-        raw_features[f'platform_{platform}'] = 1
+        # hw-specific features
+        raw_features.loc[raw_features.runType == 'CPU', new_features] = platform_specs['CPU'][platform]
+        raw_features.loc[raw_features.runType == 'GPU', new_features] = platform_specs['GPU'][platform]
         raw_features = impute(raw_features)
+
         all_raw_features.append(raw_features)
 
     profile_df = (

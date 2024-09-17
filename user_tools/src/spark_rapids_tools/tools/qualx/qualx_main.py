@@ -363,7 +363,7 @@ def _read_platform_scores(
         acc = compute_accuracy(
             group,
             y='Actual speedup',
-            y_preds={'QX': 'QX speedup', 'QXS': 'QXS speedup'},
+            y_preds={'QX': 'QX speedup'},
             weight='appDuration',
         )
         acc_score = {k: v[score] for k, v in acc.items()}
@@ -817,21 +817,12 @@ def evaluate(
 
     if not raw_app.loc[raw_app.gpu_appDuration.isna()].empty:
         logger.error(
-            'missing gpu apps: %s', raw_app.loc[raw_app.gpu_appDuration.isna()].to_markdown()
+            'missing gpu apps: \n%s', raw_app.loc[raw_app.gpu_appDuration.isna()].to_markdown()
         )
         raw_app = raw_app.loc[~raw_app.gpu_appDuration.isna()]
 
     raw_app = raw_app.rename({'gpu_appDuration': 'appDuration_actual'}, axis=1)
     raw_app['speedup_actual'] = raw_app['appDuration'] / raw_app['appDuration_actual']
-
-    # adjusted prediction on filtered data
-    filtered_sql, filtered_app = _predict(
-        xgb_model,
-        dataset_name,
-        filtered_profile_df,
-        split_fn=split_fn,
-        qual_tool_filter=qual_tool_filter,
-    )
 
     # merge results and join w/ qual_preds
     raw_sql_cols = {
@@ -848,26 +839,7 @@ def evaluate(
         'split': 'split',
     }
     raw_sql = raw_sql.rename(raw_sql_cols, axis=1)
-    raw_cols = [col for col in raw_sql_cols.values() if col in raw_sql]
-
-    filtered_sql_cols = {
-        'appId': 'appId',
-        'appDuration': 'appDuration',
-        'sqlID': 'sqlID',
-        'scaleFactor': 'scaleFactor',
-        'Duration': 'Duration',
-        'Duration_supported': 'QXS Duration_supported',
-        'Duration_pred': 'QXS Duration_pred',
-        # 'y_pred': 'QX speedup',
-        'speedup_pred': 'QXS speedup',
-    }
-    filtered_sql = filtered_sql.rename(filtered_sql_cols, axis=1)
-
-    results_sql = raw_sql[raw_cols].merge(
-        filtered_sql[filtered_sql_cols.values()],
-        on=['appId', 'sqlID', 'scaleFactor', 'appDuration', 'Duration'],
-        how='left',
-    )
+    results_sql = raw_sql
 
     raw_app_cols = {
         'appId': 'appId',
@@ -880,23 +852,7 @@ def evaluate(
         'speedup': 'QX speedup',
     }
     raw_app = raw_app.rename(raw_app_cols, axis=1)
-
-    filtered_app_cols = {
-        'appId': 'appId',
-        'appDuration': 'appDuration',
-        'Duration_pred': 'QXS Duration_pred',
-        'Duration_supported': 'QXS Duration_supported',
-        'fraction_supported': 'QXS fraction_supported',
-        'appDuration_pred': 'QXS appDuration_pred',
-        'speedup': 'QXS speedup',
-    }
-    filtered_app = filtered_app.rename(filtered_app_cols, axis=1)
-
-    results_app = raw_app[raw_app_cols.values()].merge(
-        filtered_app[filtered_app_cols.values()],
-        on=['appId', 'appDuration'],
-        how='left',
-    )
+    results_app = raw_app
 
     print(
         '\nComparison of qualx raw (QX) and qualx w/ stage filtering (QXS)'
@@ -916,7 +872,7 @@ def evaluate(
         scores = compute_accuracy(
             res,
             'Actual speedup',
-            {'QX': 'QX speedup', 'QXS': 'QXS speedup'},
+            {'QX': 'QX speedup'},
             'appDuration' if granularity == 'app' else 'Duration',
         )
 
@@ -1000,6 +956,7 @@ def compare(
     """
     # compare MAPE scores per dataset
     curr_df = _read_dataset_scores(current, score, granularity, split)
+    curr_df['model'] = 'combined'
     prev_df = _read_dataset_scores(previous, score, granularity, split)
 
     compare_df = prev_df.merge(
@@ -1008,7 +965,7 @@ def compare(
         on=['model', 'platform', 'dataset', 'granularity', 'split', 'score'],
         suffixes=('_prev', None),
     )
-    for score_type in ['QX', 'QXS']:
+    for score_type in ['QX']:
         compare_df[f'{score_type}_delta'] = (
             compare_df[score_type] - compare_df[f'{score_type}_prev']
         )
@@ -1032,7 +989,7 @@ def compare(
         on=['model', 'platform'],
         suffixes=('_prev', None),
     )
-    for score_type in ['QX', 'QXS']:
+    for score_type in ['QX']:
         compare_df[f'{score_type}_delta'] = (
             compare_df[score_type] - compare_df[f'{score_type}_prev']
         )
