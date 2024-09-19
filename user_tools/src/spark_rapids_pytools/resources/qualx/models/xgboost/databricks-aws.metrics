@@ -43,67 +43,82 @@
 41,memoryBytesSpilled_mean,0.00037808807,26248908.39940863,107040263.16755028,0.0,0.0,0.0,0.0,724966162.8487283
 42,sqlOp_AQEShuffleRead,0.0003451941,0.7692307692307693,0.42200187205134587,0.0,1.0,1.0,1.0,1.0
 43,sqlOp_Window,0.0002627666,0.0673076923076923,0.2509566164678633,0.0,0.0,0.0,0.0,1.0
-44,sqlOp_GenerateBloomFilter,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-45,sqlOp_Generate,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-46,sqlOp_GlobalLimit,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-47,sqlOp_HashAggregate,0.0,0.9903846153846154,0.09774225976795364,0.0,1.0,1.0,1.0,1.0
-48,sqlOp_HashAggregatePrefixGroupingSets,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-49,sqlOp_TakeOrderedAndProject,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+44,sqlOp_GlutenBroadcastHashJoinExecTransformer,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+45,sqlOp_Project,0.0,1.0,0.0,1.0,1.0,1.0,1.0,1.0
+46,sqlOp_GenerateExecTransformer,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+47,sqlOp_GenerateBloomFilter,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+48,sqlOp_ProjectExecTransformer,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+49,sqlOp_GlobalLimit,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
 50,sqlOp_LocalLimit,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-51,sqlOp_LocalTableScan,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-52,sqlOp_Filter,0.0,1.0,0.0,1.0,1.0,1.0,1.0,1.0
-53,sqlOp_MapElements,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-54,sqlOp_WindowGroupLimit,0.0,0.019230769230769232,0.13755578096385773,0.0,0.0,0.0,0.0,1.0
-55,sqlOp_OutputAdapter,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-56,sqlOp_PartialWindow,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-57,sqlOp_Scan JDBCRelation,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-58,sqlOp_Scan OneRowRelation,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+51,sqlOp_HashAggregate,0.0,0.9903846153846154,0.09774225976795364,0.0,1.0,1.0,1.0,1.0
+52,sqlOp_HashAggregatePrefixGroupingSets,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+53,sqlOp_PartialWindow,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+54,sqlOp_OutputAdapter,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+55,sqlOp_HashAggregateExecTransformer,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+56,sqlOp_NativeScan parquet,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+57,sqlOp_MapElements,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+58,sqlOp_LocalTableScan,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
 59,sqlOp_Subquery,0.0,0.21474358974358973,0.411304017893851,0.0,0.0,0.0,0.0,1.0
-60,sqlOp_SortMergeJoin,0.0,0.5833333333333334,0.49379862765412535,0.0,0.0,1.0,1.0,1.0
-61,sqlOp_SortAggregate,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-62,sqlOp_SerializeFromObject,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-63,sqlOp_Project,0.0,1.0,0.0,1.0,1.0,1.0,1.0,1.0
-64,sqlOp_Scan text ,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-65,sqlOp_Scan orc ,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-66,sqlOp_ReusedSort,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-67,sqlOp_Scan json ,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-68,sqlOp_DeserializeToObject,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-69,sqlOp_Scan ExistingRDD Delta Table Checkpoint,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-70,sqlOp_Scan csv ,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-71,sqlOp_Scan ExistingRDD Delta Table State,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-72,sqlOp_SubqueryOutputBroadcast,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-73,platform_dataproc,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-74,sqlOp_CustomShuffleReader,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-75,taskCpu,0.0,1.0,0.0,1.0,1.0,1.0,1.0,1.0
-76,output_bytesWrittenRatio,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-77,input_bytesReadRatio,0.0,1.0,0.0,1.0,1.0,1.0,1.0,1.0
-78,decode_time,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-79,sqlOp_Execute InsertIntoHadoopFsRelationCommand,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-80,sqlOp_Scan parquet ,0.0,1.0,0.0,1.0,1.0,1.0,1.0,1.0
-81,taskGpu,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-82,executorOffHeap,0.0,35262.0,0.0,35262.0,35262.0,35262.0,35262.0,35262.0
-83,sqlOp_CommandResult,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-84,numGpusPerExecutor,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-85,executorMemory,0.0,11754.0,0.0,11754.0,11754.0,11754.0,11754.0,11754.0
-86,maxOffHeapMem,0.0,36974886912.0,0.0,36974886912.0,36974886912.0,36974886912.0,36974886912.0,36974886912.0
-87,maxOnHeapMem,0.0,6384569548.0,0.0,6384569548.0,6384569548.0,6384569548.0,6384569548.0,6384569548.0
-88,maxMem,0.0,43359456460.0,0.0,43359456460.0,43359456460.0,43359456460.0,43359456460.0,43359456460.0
-89,executorCores,0.0,16.0,0.0,16.0,16.0,16.0,16.0,16.0
-90,sqlOp_Exchange,0.0,1.0,0.0,1.0,1.0,1.0,1.0,1.0
-91,sr_remoteBytesReadToDiskRatio,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-92,sqlOp_ColumnarToRow,0.0,1.0,0.0,1.0,1.0,1.0,1.0,1.0
-93,diskBytesSpilled_mean,0.0,7069993.416079486,31523322.991665952,0.0,0.0,0.0,0.0,374126772.9802514
-94,output_bytesWritten_mean,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-95,sr_remoteBytesReadToDisk_mean,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-96,output_recordsWritten_sum,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-97,platform_databricks-aws,0.0,1.0,0.0,1.0,1.0,1.0,1.0,1.0
-98,platform_databricks-azure,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-99,numExecutors,0.0,8.0,0.0,8.0,8.0,8.0,8.0,8.0
-100,platform_emr,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-101,platform_onprem,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-102,sqlOp_BatchEvalPython,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-103,sqlOp_BroadcastExchange,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-104,sqlOp_BroadcastHashJoin,0.0,0.9294871794871795,0.2564205620816261,0.0,1.0,1.0,1.0,1.0
-105,sqlOp_BroadcastNestedLoopJoin,0.0,0.038461538461538464,0.19261662052660916,0.0,0.0,0.0,0.0,1.0
-106,sqlOp_CartesianProduct,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
-107,sqlOp_WindowSort,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+60,sqlOp_RowToVeloxColumnar,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+61,sqlOp_ReusedSort,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+62,sqlOp_WindowGroupLimit,0.0,0.019230769230769232,0.13755578096385773,0.0,0.0,0.0,0.0,1.0
+63,sqlOp_SortExecTransformer,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+64,sqlOp_SortAggregate,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+65,sqlOp_ShuffledHashJoinExecTransformer,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+66,sqlOp_SerializeFromObject,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+67,sqlOp_Scan text ,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+68,sqlOp_Scan orc ,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+69,sqlOp_Scan json ,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+70,sqlOp_SubqueryOutputBroadcast,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+71,sqlOp_Scan csv ,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+72,sqlOp_TakeOrderedAndProject,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+73,sqlOp_Scan OneRowRelation,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+74,sqlOp_Scan JDBCRelation,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+75,sqlOp_VeloxColumnarToRowExec,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+76,sqlOp_FilterExecTransformer,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+77,sqlOp_Scan ExistingRDD Delta Table State,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+78,sqlOp_Scan ExistingRDD Delta Table Checkpoint,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+79,sqlOp_SortMergeJoin,0.0,0.5833333333333334,0.49379862765412535,0.0,0.0,1.0,1.0,1.0
+80,sqlOp_Generate,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+81,platform_databricks-azure,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+82,sqlOp_Filter,0.0,1.0,0.0,1.0,1.0,1.0,1.0,1.0
+83,sr_remoteBytesReadToDiskRatio,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+84,input_bytesReadRatio,0.0,1.0,0.0,1.0,1.0,1.0,1.0,1.0
+85,decode_time,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+86,taskGpu,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+87,taskCpu,0.0,1.0,0.0,1.0,1.0,1.0,1.0,1.0
+88,executorOffHeap,0.0,35262.0,0.0,35262.0,35262.0,35262.0,35262.0,35262.0
+89,numGpusPerExecutor,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+90,executorMemory,0.0,11754.0,0.0,11754.0,11754.0,11754.0,11754.0,11754.0
+91,maxOffHeapMem,0.0,36974886912.0,0.0,36974886912.0,36974886912.0,36974886912.0,36974886912.0,36974886912.0
+92,maxOnHeapMem,0.0,6384569548.0,0.0,6384569548.0,6384569548.0,6384569548.0,6384569548.0,6384569548.0
+93,maxMem,0.0,43359456460.0,0.0,43359456460.0,43359456460.0,43359456460.0,43359456460.0,43359456460.0
+94,executorCores,0.0,16.0,0.0,16.0,16.0,16.0,16.0,16.0
+95,numExecutors,0.0,8.0,0.0,8.0,8.0,8.0,8.0,8.0
+96,sqlOp_Scan parquet ,0.0,1.0,0.0,1.0,1.0,1.0,1.0,1.0
+97,sqlOp_Execute InsertIntoHadoopFsRelationCommand,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+98,sqlOp_Exchange,0.0,1.0,0.0,1.0,1.0,1.0,1.0,1.0
+99,sqlOp_ColumnarToRow,0.0,1.0,0.0,1.0,1.0,1.0,1.0,1.0
+100,output_recordsWritten_sum,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+101,output_bytesWrittenRatio,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+102,diskBytesSpilled_mean,0.0,7069993.416079486,31523322.991665952,0.0,0.0,0.0,0.0,374126772.9802514
+103,sqlOp_ExpandExecTransformer,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+104,output_bytesWritten_mean,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+105,sqlOp_Execute InsertIntoHiveTable,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+106,sqlOp_DeserializeToObject,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+107,sqlOp_CustomShuffleReader,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+108,sqlOp_CommandResult,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+109,sqlOp_ColumnarExchange,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+110,sqlOp_ColumnarBroadcastExchange,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+111,sqlOp_ColumnarAQEShuffleRead,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+112,sqlOp_CartesianProduct,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+113,sqlOp_BroadcastNestedLoopJoin,0.0,0.038461538461538464,0.19261662052660916,0.0,0.0,0.0,0.0,1.0
+114,sqlOp_BroadcastHashJoin,0.0,0.9294871794871795,0.2564205620816261,0.0,1.0,1.0,1.0,1.0
+115,sqlOp_BroadcastExchange,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+116,sqlOp_BatchEvalPython,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+117,platform_onprem,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+118,platform_emr,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+119,platform_dataproc,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+120,platform_databricks-aws,0.0,1.0,0.0,1.0,1.0,1.0,1.0,1.0
+121,sr_remoteBytesReadToDisk_mean,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+122,sqlOp_WindowSort,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
