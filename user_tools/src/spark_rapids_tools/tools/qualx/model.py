@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 import xgboost as xgb
 from xgboost import Booster
-from spark_rapids_tools.tools.qualx.preprocess import expected_raw_features
+from spark_rapids_tools.tools.qualx.preprocess import expected_raw_features, set_categorical
 from spark_rapids_tools.tools.qualx.util import get_logger
 # Import optional packages
 try:
@@ -48,7 +48,7 @@ ignored_features = {
     'pluginEnabled',
     'runType',
     'scaleFactor',
-    'sparkRuntime',
+    # 'sparkRuntime',
     'sparkVersion',
     'sqlID'
 }
@@ -86,11 +86,11 @@ def train(
     # split into train/val/test sets
     x_train = cpu_aug_tbl.loc[cpu_aug_tbl['split'] == 'train', feature_cols]
     y_train = cpu_aug_tbl.loc[cpu_aug_tbl['split'] == 'train', label_col]
-    d_train = xgb.DMatrix(x_train, y_train)
+    d_train = xgb.DMatrix(x_train, y_train, enable_categorical=True)
 
     x_val = cpu_aug_tbl.loc[cpu_aug_tbl['split'] == 'val', feature_cols]
     y_val = cpu_aug_tbl.loc[cpu_aug_tbl['split'] == 'val', label_col]
-    d_val = xgb.DMatrix(x_val, y_val)
+    d_val = xgb.DMatrix(x_val, y_val, enable_categorical=True)
 
     # dtest should be held out of all train/val steps
     # X_test = cpu_aug_tbl.loc[cpu_aug_tbl['split']=='test', feature_cols]
@@ -101,7 +101,7 @@ def train(
     cpu_aug_tbl = cpu_aug_tbl.sort_values('description').reset_index(drop=True)
     x_tune = cpu_aug_tbl.loc[cpu_aug_tbl['split'] != 'test', feature_cols]
     y_tune = cpu_aug_tbl.loc[cpu_aug_tbl['split'] != 'test', label_col]
-    d_tune = xgb.DMatrix(x_tune, y_tune)
+    d_tune = xgb.DMatrix(x_tune, y_tune, enable_categorical=True)
 
     if base_model:
         # use hyperparameters from base model (w/ modifications to learning rate and num trees)
@@ -126,6 +126,7 @@ def train(
             'objective': 'reg:squarederror',
             'eval_metric': ['mae', 'mape'],  # applied to eval_set/test_data if provided
             'booster': 'gbtree',
+            'max_cat_to_onehot': 10,
         }
         xgb_params = {**base_params, **best_params}
         n_estimators = xgb_params.pop('n_estimators')
@@ -163,7 +164,7 @@ def predict(
     x = cpu_aug_tbl[model_features]
     y = cpu_aug_tbl[label_col] if label_col else None
 
-    d_mat = xgb.DMatrix(x)
+    d_mat = xgb.DMatrix(x, enable_categorical=True)
     y_pred = xgb_model.predict(d_mat)
 
     if LOG_LABEL:
@@ -336,6 +337,7 @@ def extract_model_features(
             if modified_df.index.equals(dataset_df.index):
                 cpu_aug_tbl.update(modified_df)
                 cpu_aug_tbl.astype(df_schema)
+                cpu_aug_tbl = set_categorical(cpu_aug_tbl)
             else:
                 raise ValueError(f'Plugin: split_function for {ds_name} unexpectedly modified row indices.')
             cpu_aug_tbl.update(dataset_df)
@@ -349,6 +351,7 @@ def extract_model_features(
             if modified_default_df.index.equals(default_df.index):
                 cpu_aug_tbl.update(modified_default_df)
                 cpu_aug_tbl.astype(df_schema)
+                cpu_aug_tbl = set_categorical(cpu_aug_tbl)
             else:
                 raise ValueError('Default split_function unexpectedly modified row indices.')
     return cpu_aug_tbl, feature_cols, label_col
@@ -399,7 +402,7 @@ def split_all_test(cpu_aug_tbl: pd.DataFrame) -> pd.DataFrame:
 def tune_hyperparameters(x, y, n_trials: int = 200) -> dict:
     # use full training set for hyperparameter search
 
-    xgb_tmp = xgb.XGBRegressor(objective='reg:squarederror')
+    xgb_tmp = xgb.XGBRegressor(objective='reg:squarederror', enable_categorical=True)
 
     optuna_search_params = {
         'eta': optuna.distributions.FloatDistribution(0.001, 0.05),
@@ -441,7 +444,8 @@ def compute_shapley_values(xgb_model: xgb.Booster, features: pd.DataFrame) -> Tu
     pd.set_option('display.max_rows', None)
     explainer = shap.TreeExplainer(xgb_model)
     feature_cols = xgb_model.feature_names
-    shap_values = explainer.shap_values(features[feature_cols])
+    X_train = xgb.DMatrix(features[feature_cols], enable_categorical=True)
+    shap_values = explainer.shap_values(X_train)
 
     # raw shap values per row (w/ expected value of model)
     shap_values_df = pd.DataFrame(shap_values, columns=feature_cols)

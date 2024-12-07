@@ -162,7 +162,59 @@ expected_raw_features = \
         'sw_writeTime_mean',
         'taskCpu',
         'taskGpu',
+        # Velox
+        'sqlOp_ColumnarAQEShuffleRead',
+        'sqlOp_ColumnarBroadcastExchange',
+        'sqlOp_ColumnarExchange',
+        'sqlOp_Execute InsertIntoHiveTable',
+        'sqlOp_ExpandExecTransformer',
+        'sqlOp_FilterExecTransformer',
+        'sqlOp_GenerateExecTransformer',
+        'sqlOp_GlutenBroadcastHashJoinExecTransformer',
+        'sqlOp_HashAggregateExecTransformer',
+        'sqlOp_NativeScan parquet',
+        'sqlOp_ProjectExecTransformer',
+        'sqlOp_RowToVeloxColumnar',
+        'sqlOp_ShuffledHashJoinExecTransformer',
+        'sqlOp_SortExecTransformer',
+        'sqlOp_VeloxColumnarToRowExec',
     }
+
+
+# op labels which have dynamic components which must be removed
+dynamic_op_labels = [
+    # CPU
+    'Scan DeltaCDFRelation',
+    'Scan ExistingRDD Delta Table Checkpoint',
+    'Scan ExistingRDD Delta Table State',
+    'Scan JDBCRelation',
+    'Scan parquet ',  # trailing space is also in default sql op name
+    # GPU
+    'GpuCoalesceBatches',
+    'GpuColumnarToRow',
+    'GpuCustomShuffleReader',
+    'GpuFilter',
+    'GpuGenerate',
+    'GpuHashAggregate',
+    'GpuProject',
+    'GpuRowToColumnar',
+    'GpuScan parquet',
+    'GpuShuffleCoalesce',
+    'GpuShuffledHashJoin',
+    'GpuUnion',
+    # Velox
+    'NativeScan parquet',
+]
+
+
+
+def set_categorical(df: pd.DataFrame):
+    # categorical features
+    categorical_features = [
+        'sparkRuntime',
+    ]
+    df[categorical_features] = df[categorical_features].astype('category')
+    return df
 
 
 def load_datasets(
@@ -385,19 +437,23 @@ def load_profiles(
     )
 
     # run any plugin hooks on profile_df
-    for ds_name, plugin_path in plugins.items():
-        plugin = load_plugin(plugin_path)
-        if plugin:
-            df_schema = profile_df.dtypes
-            dataset_df = profile_df.loc[
-                (profile_df.appName == ds_name) | (profile_df.appName.str.startswith(f'{ds_name}:'))
-            ]
-            modified_dataset_df = plugin.load_profiles_hook(dataset_df)
-            if modified_dataset_df.index.equals(dataset_df.index):
-                profile_df.update(modified_dataset_df)
-                profile_df.astype(df_schema)
-            else:
-                raise ValueError(f'Plugin: load_profiles_hook for {ds_name} unexpectedly modified row indices.')
+    if not profile_df.empty:
+        for ds_name, plugin_path in plugins.items():
+            plugin = load_plugin(plugin_path)
+            if plugin:
+                df_schema = profile_df.dtypes
+                dataset_df = profile_df.loc[
+                    (profile_df.appName == ds_name) | (profile_df.appName.str.startswith(f'{ds_name}:'))
+                ]
+                modified_dataset_df = plugin.load_profiles_hook(dataset_df)
+                if modified_dataset_df.index.equals(dataset_df.index):
+                    profile_df.update(modified_dataset_df)
+                    profile_df.astype(df_schema)
+                    profile_df = set_categorical(profile_df)
+                else:
+                    raise ValueError(f'Plugin: load_profiles_hook for {ds_name} unexpectedly modified row indices.')
+
+
     return profile_df
 
 
@@ -476,16 +532,6 @@ def extract_raw_features(
 
     # normalize sqlOp labels w/ variable suffixes
     # note: have to do this after unpacking WholeStageCodegen ops
-    dynamic_op_labels = [
-        # CPU
-        'Scan DeltaCDFRelation',
-        'Scan ExistingRDD Delta Table Checkpoint',
-        'Scan ExistingRDD Delta Table State',
-        'Scan JDBCRelation',
-        'Scan parquet ',  # trailing space is also in default sql op name
-        # GPU
-        'GpuScan parquet',
-    ]
     for op in dynamic_op_labels:
         sql_ops_counter.loc[
             sql_ops_counter['nodeName'].str.startswith(op), 'nodeName'
@@ -668,6 +714,8 @@ def extract_raw_features(
         .fillna(0)
     )
 
+
+
     # normalize byte features
     byte_features = [
         'diskBytesSpilled',
@@ -796,6 +844,12 @@ def load_csv_files(
     if not app_info.empty and not qual_tool_app_duration.empty:
         # TODO: Update 'durationStr' if it is included as a model feature in the future.
         app_info['duration'] = qual_tool_app_duration.iloc[0]
+
+    # Load spark properties
+    tmp_df = scan_tbl('spark_properties')
+    spark_props = tmp_df.set_index('propertyName')['appIndex_1'].to_dict()
+    if 'spark.gluten.sql.columnar.backend.velox.spillEnabled' in spark_props:
+        app_info['sparkRuntime'] = 'VELOX'
 
     # Allow user-provided 'test_name' as 'appName'
     # appName = app_info['appName'].iloc[0]
