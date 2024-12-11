@@ -42,7 +42,8 @@ ignored_features = {
     'appId',
     'appName',
     'description',
-    'Duration',
+    'duration_mean',        # this would leak duration_sum
+    'duration_sum',
     'fraction_supported',
     'jobStartTime_min',
     'pluginEnabled',
@@ -74,13 +75,14 @@ def train(
         cpu_aug_tbl[label_col] = np.log(cpu_aug_tbl[label_col])
 
     # remove nan label entries
-    original_num_rows = cpu_aug_tbl.shape[0]
-    cpu_aug_tbl = cpu_aug_tbl.loc[~cpu_aug_tbl[label_col].isna()].reset_index(
-        drop=True
-    )
-    if cpu_aug_tbl.shape[0] < original_num_rows:
+    original_num_rows = len(cpu_aug_tbl)
+    cpu_aug_tbl = cpu_aug_tbl.loc[~cpu_aug_tbl[label_col].isna()].reset_index(drop=True)
+    num_rows = len(cpu_aug_tbl)
+    if num_rows < original_num_rows:
         logger.warning(
-            'Removed %d rows with NaN label values', original_num_rows - cpu_aug_tbl.shape[0]
+            'Removed %d rows with NaN label values, %d rows remaining',
+            original_num_rows - num_rows,
+            num_rows
         )
 
     # split into train/val/test sets
@@ -180,7 +182,7 @@ def predict(
         'appDuration',
         'sqlID',
         'scaleFactor',
-        'Duration',
+        'duration_sum',
         'fraction_supported',
         'description',
     ]
@@ -196,22 +198,22 @@ def predict(
 
     if 'y' in results_df.columns:
         # reconstruct original gpu duration for validation purposes
-        results_df['gpuDuration'] = results_df['Duration'] / results_df['y']
-        results_df['gpuDuration'] = np.floor(results_df['gpuDuration'])
+        results_df['gpu_duration_sum'] = results_df['duration_sum'] / results_df['y']
+        results_df['gpu_duration_sum'] = np.floor(results_df['gpu_duration_sum'])
 
     # adjust raw predictions with stage/sqlID filtering of unsupported ops
-    results_df['Duration_pred'] = results_df['Duration'] * (
+    results_df['duration_sum_pred'] = results_df['duration_sum'] * (
         1.0
         - results_df['fraction_supported']
         + (results_df['fraction_supported'] / results_df['y_pred'])
     )
     # compute fraction of duration in supported ops
-    results_df['Duration_supported'] = (
-        results_df['Duration'] * results_df['fraction_supported']
+    results_df['duration_sum_supported'] = (
+        results_df['duration_sum'] * results_df['fraction_supported']
     )
     # compute adjusted speedup (vs. raw speedup prediction: 'y_pred')
     # without qual data, this should be the same as the raw 'y_pred'
-    results_df['speedup_pred'] = results_df['Duration'] / results_df['Duration_pred']
+    results_df['speedup_pred'] = results_df['duration_sum'] / results_df['duration_sum_pred']
     results_df = results_df.drop(columns=['fraction_supported'])
 
     return results_df
@@ -256,11 +258,11 @@ def extract_model_features(
                 'appName',
                 'scaleFactor',
                 'sqlID',
-                'Duration',
+                'duration_sum',
                 'description',
             ]
         ]
-        gpu_aug_tbl = gpu_aug_tbl.rename(columns={'Duration': 'xgpu_Duration'})
+        gpu_aug_tbl = gpu_aug_tbl.rename(columns={'duration_sum': 'xgpu_duration_sum'})
         cpu_aug_tbl = cpu_aug_tbl.merge(
             gpu_aug_tbl,
             on=['appName', 'scaleFactor', 'sqlID', 'description'],
@@ -269,7 +271,7 @@ def extract_model_features(
 
         # warn for possible mismatched sqlIDs
         num_rows = len(cpu_aug_tbl)
-        num_na = cpu_aug_tbl['xgpu_Duration'].isna().sum()
+        num_na = cpu_aug_tbl['xgpu_duration_sum'].isna().sum()
         if (
             num_na / num_rows > 0.05
         ):  # arbitrary threshold, misaligned sqlIDs still may 'match' most of the time
@@ -279,14 +281,14 @@ def extract_model_features(
                 num_rows,
             )
 
-        # calculate Duration_speedup
-        cpu_aug_tbl['Duration_speedup'] = (
-            cpu_aug_tbl['Duration'] / cpu_aug_tbl['xgpu_Duration']
+        # calculate duration_sum_speedup
+        cpu_aug_tbl['duration_sum_speedup'] = (
+            cpu_aug_tbl['duration_sum'] / cpu_aug_tbl['xgpu_duration_sum']
         )
-        cpu_aug_tbl = cpu_aug_tbl.drop(columns=['xgpu_Duration'])
+        cpu_aug_tbl = cpu_aug_tbl.drop(columns=['xgpu_duration_sum'])
 
-        # use Duration_speedup as label
-        label_col = 'Duration_speedup'
+        # use duration_sum_speedup as label
+        label_col = 'duration_sum_speedup'
     else:
         # inference dataset with CPU runs only
         label_col = None
