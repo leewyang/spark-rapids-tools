@@ -939,8 +939,9 @@ def evaluate(
 
     results_sql = raw_sql[raw_cols].merge(
         filtered_sql[filtered_sql_cols.values()],
-        on=['appId', 'sqlID', 'scaleFactor', 'appDuration', 'duration_sum'],
+        on=['appId', 'sqlID', 'scaleFactor', 'appDuration'],
         how='left',
+        suffixes=[None, '_filtered']
     )
 
     # raw_app_cols = {
