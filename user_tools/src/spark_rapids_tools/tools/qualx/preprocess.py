@@ -22,6 +22,7 @@ import glob
 import os
 import numpy as np
 import pandas as pd
+from spark_rapids_tools.tools.qualx import label
 from spark_rapids_tools.tools.qualx.util import (
     ensure_directory,
     find_eventlogs,
@@ -955,6 +956,11 @@ def load_csv_files(
     # Load job+stage level agg metrics:
     job_agg_tbl = scan_tbl('job_level_aggregated_task_metrics')
     stage_agg_tbl = scan_tbl('stage_level_aggregated_task_metrics')
+
+    # Override appDuration with sum(duration_sum) across all stages
+    if label == 'duration_sum':
+        sql_duration['appDuration'] = stage_agg_tbl['duration_sum'].astype(float).sum()
+
     job_stage_agg_tbl = pd.DataFrame()
     if not any([job_agg_tbl.empty, stage_agg_tbl.empty, job_map_tbl.empty]):
         # Rename jobId and stageId to ID

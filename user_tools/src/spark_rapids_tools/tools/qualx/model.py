@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 import xgboost as xgb
 from xgboost import Booster
+from spark_rapids_tools.tools.qualx import label
 from spark_rapids_tools.tools.qualx.preprocess import expected_raw_features
 from spark_rapids_tools.tools.qualx.util import get_logger
 # Import optional packages
@@ -35,9 +36,6 @@ logger = get_logger(__name__)
 FILTER_SPILLS = False  # remove queries with any disk/mem spill
 LOG_LABEL = True  # use log(y) as target
 
-
-# label = 'Duration'
-label = 'duration_sum'
 
 # non-training features (and labels)
 ignored_features = {

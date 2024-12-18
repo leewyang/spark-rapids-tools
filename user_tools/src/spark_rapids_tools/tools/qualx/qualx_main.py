@@ -28,6 +28,7 @@ import xgboost as xgb
 import fire
 
 from spark_rapids_tools import CspPath
+from spark_rapids_tools.tools.qualx import label
 from spark_rapids_tools.tools.qualx.preprocess import (
     load_datasets,
     load_profiles,
@@ -38,11 +39,11 @@ from spark_rapids_tools.tools.qualx.preprocess import (
 from spark_rapids_tools.tools.qualx.model import (
     extract_model_features,
     compute_shapley_values,
-    label,
     split_all_test,
     split_train_val,
+    train as train_model,
+    predict as predict_model,
 )
-from spark_rapids_tools.tools.qualx.model import train as train_model, predict as predict_model
 from spark_rapids_tools.tools.qualx.util import (
     compute_accuracy,
     ensure_directory,
@@ -218,21 +219,21 @@ def _compute_summary(results: pd.DataFrame) -> pd.DataFrame:
         .reset_index()
     )
 
-    # # compute the fraction of app duration w/ supported ops
-    # # without qual tool output, this is the entire SQL duration
-    # # with qual tool output, this is the fraction of SQL w/ supported ops
-    # summary['appDuration'] = summary['appDuration'].clip(lower=summary['Duration'])
-    # summary['fraction_supported'] = (
-    #     summary['Duration_supported'] / summary['appDuration']
-    # )
+    # compute the fraction of app duration w/ supported ops
+    # without qual tool output, this is the entire SQL duration
+    # with qual tool output, this is the fraction of SQL w/ supported ops
+    summary['appDuration'] = summary['appDuration'].clip(lower=summary[label])
+    summary['fraction_supported'] = (
+        summary[f'{label}_supported'] / summary['appDuration']
+    )
 
-    # # compute the predicted app duration from original app duration and predicted SQL duration
-    # # note: this assumes a non-SQL speedup of 1.0
-    # summary['appDuration_pred'] = (
-    #     summary['appDuration'] - summary['Duration'] + summary['Duration_pred']
-    # )
-    # # compute the per-app speedup
-    # summary['speedup'] = summary['appDuration'] / summary['appDuration_pred']
+    # compute the predicted app duration from original app duration and predicted SQL duration
+    # note: this assumes a non-SQL speedup of 1.0
+    summary['appDuration_pred'] = (
+        summary['appDuration'] - summary[label] + summary[f'{label}_pred']
+    )
+    # compute the per-app speedup
+    summary['speedup'] = summary['appDuration'] / summary['appDuration_pred']
 
     # fix dtypes
     long_cols = [
@@ -263,9 +264,9 @@ def _predict(
             'appDuration',
             'sqlID',
             'scaleFactor',
-            'Duration',
-            'Duration_supported',
-            'Duration_pred',
+            label,
+            f'{label}_supported',
+            f'{label}_pred',
             'speedup_pred',
         ]
     )
@@ -273,8 +274,8 @@ def _predict(
         columns=[
             'appId',
             'appDuration',
-            'Duration_pred',
-            'Duration_supported',
+            f'{label}_pred',
+            f'{label}_supported',
             'fraction_supported',
             'appDuration_pred',
             'speedup',
@@ -872,32 +873,32 @@ def evaluate(
         qual_tool_filter=qual_tool_filter,
     )
 
-    # # app level ground truth
-    # app_durations = (
-    #     profile_df.loc[profile_df.runType == 'GPU'][
-    #         ['appName', 'appDuration', 'description', 'scaleFactor']
-    #     ]
-    #     .groupby(['appName', 'appDuration', 'scaleFactor'])
-    #     .first()
-    #     .reset_index()
-    # )
-    # app_durations = app_durations.rename(columns={'appDuration': 'gpu_appDuration'})
+    # app level ground truth
+    app_durations = (
+        profile_df.loc[profile_df.runType == 'GPU'][
+            ['appName', 'appDuration', 'description', 'scaleFactor']
+        ]
+        .groupby(['appName', 'appDuration', 'scaleFactor'])
+        .first()
+        .reset_index()
+    )
+    app_durations = app_durations.rename(columns={'appDuration': 'gpu_appDuration'})
 
-    # # join raw app data with app level gpu ground truth
-    # raw_app = raw_app.merge(
-    #     app_durations[['appName', 'description', 'scaleFactor', 'gpu_appDuration']],
-    #     on=['appName', 'description', 'scaleFactor'],
-    #     how='left',
-    # )
+    # join raw app data with app level gpu ground truth
+    raw_app = raw_app.merge(
+        app_durations[['appName', 'description', 'scaleFactor', 'gpu_appDuration']],
+        on=['appName', 'description', 'scaleFactor'],
+        how='left',
+    )
 
-    # if not raw_app.loc[raw_app.gpu_appDuration.isna()].empty:
-    #     logger.error(
-    #         'missing gpu apps: %s', raw_app.loc[raw_app.gpu_appDuration.isna()].to_markdown()
-    #     )
-    #     raw_app = raw_app.loc[~raw_app.gpu_appDuration.isna()]
+    if not raw_app.loc[raw_app.gpu_appDuration.isna()].empty:
+        logger.error(
+            'missing gpu apps: %s', raw_app.loc[raw_app.gpu_appDuration.isna()].to_markdown()
+        )
+        raw_app = raw_app.loc[~raw_app.gpu_appDuration.isna()]
 
-    # raw_app = raw_app.rename({'gpu_appDuration': 'appDuration_actual'}, axis=1)
-    # raw_app['speedup_actual'] = raw_app['appDuration'] / raw_app['appDuration_actual']
+    raw_app = raw_app.rename({'gpu_appDuration': 'appDuration_actual'}, axis=1)
+    raw_app['speedup_actual'] = raw_app['appDuration'] / raw_app['appDuration_actual']
 
     # adjusted prediction on filtered data
     filtered_sql, filtered_app = _predict(
@@ -945,40 +946,40 @@ def evaluate(
         suffixes=[None, '_filtered']
     )
 
-    # raw_app_cols = {
-    #     'appId': 'appId',
-    #     'appDuration': 'appDuration',
-    #     'speedup_actual': 'Actual speedup',
-    #     'Duration_pred': 'QX Duration_pred',
-    #     'Duration_supported': 'QX Duration_supported',
-    #     'fraction_supported': 'QX fraction_supported',
-    #     'appDuration_pred': 'QX appDuration_pred',
-    #     'speedup': 'QX speedup',
-    # }
-    # raw_app = raw_app.rename(raw_app_cols, axis=1)
+    raw_app_cols = {
+        'appId': 'appId',
+        'appDuration': 'appDuration',
+        'speedup_actual': 'Actual speedup',
+        f'{label}_pred': f'QX {label}_pred',
+        f'{label}_supported': f'QX {label}_supported',
+        'fraction_supported': 'QX fraction_supported',
+        'appDuration_pred': 'QX appDuration_pred',
+        'speedup': 'QX speedup',
+    }
+    raw_app = raw_app.rename(raw_app_cols, axis=1)
 
-    # filtered_app_cols = {
-    #     'appId': 'appId',
-    #     'appDuration': 'appDuration',
-    #     'Duration_pred': 'QXS Duration_pred',
-    #     'Duration_supported': 'QXS Duration_supported',
-    #     'fraction_supported': 'QXS fraction_supported',
-    #     'appDuration_pred': 'QXS appDuration_pred',
-    #     'speedup': 'QXS speedup',
-    # }
-    # filtered_app = filtered_app.rename(filtered_app_cols, axis=1)
+    filtered_app_cols = {
+        'appId': 'appId',
+        'appDuration': 'appDuration',
+        f'{label}_pred': f'QXS {label}_pred',
+        f'{label}_supported': f'QXS {label}_supported',
+        'fraction_supported': 'QXS fraction_supported',
+        'appDuration_pred': 'QXS appDuration_pred',
+        'speedup': 'QXS speedup',
+    }
+    filtered_app = filtered_app.rename(filtered_app_cols, axis=1)
 
-    # results_app = raw_app[raw_app_cols.values()].merge(
-    #     filtered_app[filtered_app_cols.values()],
-    #     on=['appId', 'appDuration'],
-    #     how='left',
-    # )
+    results_app = raw_app[raw_app_cols.values()].merge(
+        filtered_app[filtered_app_cols.values()],
+        on=['appId', 'appDuration'],
+        how='left',
+    )
 
-    # print(
-    #     '\nComparison of qualx raw (QX) and qualx w/ stage filtering (QXS)'
-    # )
-    # print(tabulate(results_app, headers='keys', tablefmt='psql', floatfmt='.2f'))
-    # print()
+    print(
+        '\nComparison of qualx raw (QX) and qualx w/ stage filtering (QXS)'
+    )
+    print(tabulate(results_app, headers='keys', tablefmt='psql', floatfmt='.2f'))
+    print()
 
     # compute mean abs percentage error (MAPE) for each tool (QX, QXS)
 
@@ -989,6 +990,11 @@ def evaluate(
         res = results_sql
         res = res[res.split == 'test'] if split == 'test' else res
         if res.empty:
+            logger.error('No evaluation results found for dataset: %s', dataset)
+            continue
+
+        if 'Actual speedup' not in res:
+            logger.error('No GPU rows found for dataset: %s', dataset)
             continue
 
         scores = compute_accuracy(
@@ -1014,7 +1020,12 @@ def evaluate(
 
     # write mape scores as CSV
     scores_path = os.path.join(output_dir, f'{dataset_name}_mape.csv')
-    ds_scores_df = pd.concat(score_dfs)
+    if score_dfs:
+        ds_scores_df = pd.concat(score_dfs)
+    else:
+        ds_scores_df = pd.DataFrame(
+            columns=['model', 'platform', 'dataset', 'granularity', 'split', 'score', 'QX', 'QXS']
+        )
     ds_scores_df.to_csv(scores_path, index=False)
 
     # write results as CSV
@@ -1024,9 +1035,9 @@ def evaluate(
 
     results_sql.to_csv(sql_predictions_path, index=False, na_rep='nan')
 
-    # app_predictions_path = os.path.join(output_dir, f'{dataset_name}_app.csv')
-    # logger.info('Writing per-application predictions to: %s', app_predictions_path)
-    # results_app.to_csv(app_predictions_path, index=False, na_rep='nan')
+    app_predictions_path = os.path.join(output_dir, f'{dataset_name}_app.csv')
+    logger.info('Writing per-application predictions to: %s', app_predictions_path)
+    results_app.to_csv(app_predictions_path, index=False, na_rep='nan')
 
 
 def evaluate_summary(
@@ -1097,34 +1108,34 @@ def compare(
     logger.info('Writing dataset evaluation comparison to: %s', comparison_path)
     compare_df.to_csv(comparison_path)
 
-    # # compare app MAPE scores per platform
-    # # note: these aggregated scores can be impacted by the addition/removal of datasets
-    # # for removed datasets, just filter out from 'previous' aggregations
-    # # for added datasets, warn after printing table for more visibility
-    # curr_df, curr_datasets = _read_platform_scores(current, score, split)
-    # prev_df, prev_datasets = _read_platform_scores(
-    #     previous, score, split, list(curr_datasets)
-    # )
+    # compare app MAPE scores per platform
+    # note: these aggregated scores can be impacted by the addition/removal of datasets
+    # for removed datasets, just filter out from 'previous' aggregations
+    # for added datasets, warn after printing table for more visibility
+    curr_df, curr_datasets = _read_platform_scores(current, score, split)
+    prev_df, prev_datasets = _read_platform_scores(
+        previous, score, split, list(curr_datasets)
+    )
 
-    # compare_df = prev_df.merge(
-    #     curr_df,
-    #     how='right',
-    #     on=['model', 'platform'],
-    #     suffixes=('_prev', None),
-    # )
-    # for score_type in ['QX', 'QXS']:
-    #     compare_df[f'{score_type}_delta'] = (
-    #         compare_df[score_type] - compare_df[f'{score_type}_prev']
-    #     )
-    # print(tabulate(compare_df, headers='keys', tablefmt='psql', floatfmt='.4f'))
-    # comparison_path = f'{current}/comparison_platform.csv'
-    # logger.info('Writing platform evaluation comparison to: %s', comparison_path)
-    # compare_df.to_csv(comparison_path)
+    compare_df = prev_df.merge(
+        curr_df,
+        how='right',
+        on=['model', 'platform'],
+        suffixes=('_prev', None),
+    )
+    for score_type in ['QX', 'QXS']:
+        compare_df[f'{score_type}_delta'] = (
+            compare_df[score_type] - compare_df[f'{score_type}_prev']
+        )
+    print(tabulate(compare_df, headers='keys', tablefmt='psql', floatfmt='.4f'))
+    comparison_path = f'{current}/comparison_platform.csv'
+    logger.info('Writing platform evaluation comparison to: %s', comparison_path)
+    compare_df.to_csv(comparison_path)
 
-    # # warn user of any new datasets
-    # added = curr_datasets - prev_datasets
-    # if added:
-    #     logger.warning('New datasets added, comparisons may be skewed: added=%s', added)
+    # warn user of any new datasets
+    added = curr_datasets - prev_datasets
+    if added:
+        logger.warning('New datasets added, comparisons may be skewed: added=%s', added)
 
 
 def shap(platform: str, prediction_output: str, index: int, model: Optional[str] = None) -> None:
