@@ -38,6 +38,7 @@ from spark_rapids_tools.tools.qualx.preprocess import (
 from spark_rapids_tools.tools.qualx.model import (
     extract_model_features,
     compute_shapley_values,
+    label,
     split_all_test,
     split_train_val,
 )
@@ -195,10 +196,10 @@ def _compute_summary(results: pd.DataFrame) -> pd.DataFrame:
         'appId',
         'appDuration',
         'description',
-        'duration_sum',
-        'duration_sum_pred',
-        'duration_sum_supported',
         'scaleFactor',
+        label,
+        f'{label}_pred',
+        f'{label}_supported',
     ]
     cols = [col for col in result_cols if col in results.columns]
     # compute per-app stats
@@ -208,9 +209,9 @@ def _compute_summary(results: pd.DataFrame) -> pd.DataFrame:
         .groupby(group_by_cols)
         .agg(
             {
-                'duration_sum': 'sum',
-                'duration_sum_pred': 'sum',
-                'duration_sum_supported': 'sum',
+                label: 'sum',
+                f'{label}_pred': 'sum',
+                f'{label}_supported': 'sum',
                 'description': 'first',
             }
         )
@@ -238,9 +239,9 @@ def _compute_summary(results: pd.DataFrame) -> pd.DataFrame:
         'appDuration',
         'appDuration_actual',
         'appDuration_pred',
-        'duration_sum',
-        'duration_sum_pred',
-        'duration_sum_supported',
+        label,
+        f'{label}_pred',
+        f'{label}_supported',
         'gpuDuration',
     ]
     cols = [col for col in long_cols if col in summary.columns]
@@ -913,11 +914,11 @@ def evaluate(
         'sqlID': 'sqlID',
         'scaleFactor': 'scaleFactor',
         'appDuration': 'appDuration',
-        'duration_sum': 'duration_sum',
-        'gpu_duration_sum': 'Actual GPU duration_sum',
+        label: label,
+        f'gpu_{label}': f'Actual GPU {label}',
         'y': 'Actual speedup',
-        'duration_sum_supported': 'QX duration_sum_supported',
-        'duration_sum_pred': 'QX duration_sum_pred',
+        f'{label}_supported': f'QX {label}_supported',
+        f'{label}_pred': f'QX {label}_pred',
         'y_pred': 'QX speedup',
         'split': 'split',
     }
@@ -929,9 +930,9 @@ def evaluate(
         'appDuration': 'appDuration',
         'sqlID': 'sqlID',
         'scaleFactor': 'scaleFactor',
-        'duration_sum': 'duration_sum',
-        'duration_sum_supported': 'QXS duration_sum_supported',
-        'duration_sum_pred': 'QXS duration_sum_pred',
+        label: label,
+        f'{label}_supported': f'QXS {label}_supported',
+        f'{label}_pred': f'QXS {label}_pred',
         # 'y_pred': 'QX speedup',
         'speedup_pred': 'QXS speedup',
     }
@@ -994,7 +995,7 @@ def evaluate(
             res,
             'Actual speedup',
             {'QX': 'QX speedup', 'QXS': 'QXS speedup'},
-            'appDuration' if granularity == 'app' else 'duration_sum',
+            'appDuration' if granularity == 'app' else label,
         )
 
         score_df = pd.DataFrame(scores)
@@ -1019,6 +1020,8 @@ def evaluate(
     # write results as CSV
     sql_predictions_path = os.path.join(output_dir, f'{dataset_name}_sql.csv')
     logger.info('Writing per-SQL predictions to: %s', sql_predictions_path)
+
+
     results_sql.to_csv(sql_predictions_path, index=False, na_rep='nan')
 
     # app_predictions_path = os.path.join(output_dir, f'{dataset_name}_app.csv')

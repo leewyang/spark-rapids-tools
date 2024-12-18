@@ -298,7 +298,7 @@ def run_qualification_tool(platform: str, eventlog: str, output_dir: str) -> Non
     run_commands(cmds)
 
 
-def run_commands(commands: List[str], workers: int = 6) -> None:
+def run_commands(commands: List[str], workers: int = 4) -> None:
     """Run a list of commands using a thread pool."""
     if not commands:
         return
