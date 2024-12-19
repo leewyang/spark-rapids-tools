@@ -997,6 +997,9 @@ def evaluate(
             logger.error('No GPU rows found for dataset: %s', dataset)
             continue
 
+        if 'Actual speedup' not in res:
+            continue
+
         scores = compute_accuracy(
             res,
             'Actual speedup',

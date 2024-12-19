@@ -198,6 +198,9 @@ def compute_accuracy(
             'wMAPE': np.sum(np.abs(results[y] - results[y_pred])) / np.sum(results[y]),
         }
         if weight:
+            # ensure float dtype
+            results[weight] = results[weight].astype(float)
+
             # MAPE w/ custom weighting by duration
             scores[name]['dMAPE'] = np.sum(
                 results[weight] * (np.abs(results[y] - results[y_pred]) / results[y])
