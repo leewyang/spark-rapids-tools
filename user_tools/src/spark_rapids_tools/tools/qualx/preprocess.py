@@ -173,7 +173,7 @@ expected_raw_features = \
 
 
 def load_datasets(
-    dataset: str, ignore_test=True
+    dataset: str, *, ignore_test: bool = True, label: str = 'Duration_sum'
 ) -> Tuple[Mapping[str, Any], pd.DataFrame]:
     """Load datasets as JSON and return a pd.DataFrame from the profiler CSV files.
 
@@ -243,7 +243,7 @@ def load_datasets(
                             platform, eventlog, f'{profile_dir}/{ds_name}'
                         )
             # load/preprocess profiler data
-            profile_df = load_profiles(datasets, profile_dir)
+            profile_df = load_profiles(datasets, profile_dir, label=label)
             # save preprocessed dataframe to cache
             profile_df.to_parquet(f'{platform_cache}/{PREPROCESSED_FILE}')
 
@@ -265,9 +265,11 @@ def load_datasets(
 def load_profiles(
     datasets: Mapping[str, Mapping],
     profile_dir: Optional[str] = None,
+    *,
     node_level_supp: Optional[pd.DataFrame] = None,
     qual_tool_filter: Optional[str] = None,
     qual_tool_output: Optional[pd.DataFrame] = None,
+    label: Optional[str] = 'Duration',
 ) -> pd.DataFrame:
     """Load dataset profiler CSV files as a pd.DataFrame."""
 
@@ -346,7 +348,7 @@ def load_profiles(
             raise ValueError(f'No CSV files found for: {ds_name}')
 
         toc = pd.concat(toc_list)
-        raw_features = extract_raw_features(toc, node_level_supp, qual_tool_filter, qual_tool_output)
+        raw_features = extract_raw_features(toc, node_level_supp, qual_tool_filter, qual_tool_output, label)
         if raw_features.empty:
             continue
         # add scaleFactor from toc or from sqlID ordering within queries grouped by query name and app
@@ -391,20 +393,21 @@ def load_profiles(
         else pd.DataFrame()
     )
 
-    # run any plugin hooks on profile_df
-    for ds_name, plugin_path in plugins.items():
-        plugin = load_plugin(plugin_path)
-        if plugin:
-            df_schema = profile_df.dtypes
-            dataset_df = profile_df.loc[
-                (profile_df.appName == ds_name) | (profile_df.appName.str.startswith(f'{ds_name}:'))
-            ]
-            modified_dataset_df = plugin.load_profiles_hook(dataset_df)
-            if modified_dataset_df.index.equals(dataset_df.index):
-                profile_df.update(modified_dataset_df)
-                profile_df.astype(df_schema)
-            else:
-                raise ValueError(f'Plugin: load_profiles_hook for {ds_name} unexpectedly modified row indices.')
+    # run any plugin hooks on profile_df, if not empty
+    if not profile_df.empty:
+        for ds_name, plugin_path in plugins.items():
+            plugin = load_plugin(plugin_path)
+            if plugin:
+                df_schema = profile_df.dtypes
+                dataset_df = profile_df.loc[
+                    (profile_df.appName == ds_name) | (profile_df.appName.str.startswith(f'{ds_name}:'))
+                ]
+                modified_dataset_df = plugin.load_profiles_hook(dataset_df)
+                if modified_dataset_df.index.equals(dataset_df.index):
+                    profile_df.update(modified_dataset_df)
+                    profile_df.astype(df_schema)
+                else:
+                    raise ValueError(f'Plugin: load_profiles_hook for {ds_name} unexpectedly modified row indices.')
     return profile_df
 
 
@@ -413,6 +416,7 @@ def extract_raw_features(
     node_level_supp: Optional[pd.DataFrame],
     qualtool_filter: Optional[str],
     qualtool_output: Optional[pd.DataFrame] = None,
+    label: Optional[str] = 'Duration',
 ) -> pd.DataFrame:
     """Given a pandas dataframe of CSV files, extract raw features into a single dataframe keyed by (appId, sqlID)."""
     # read all tables per appId
@@ -447,6 +451,10 @@ def extract_raw_features(
         log_fallback(logger, unique_app_ids,
                      fallback_reason=f'Empty feature tables found after preprocessing: {empty_tables_str}')
         return pd.DataFrame()
+
+    if label == 'duration_sum':
+        # override appDuration with sum(duration_sum) across all stages
+        app_tbl['appDuration'] = job_stage_agg_tbl['duration_sum'].astype(float).sum()
 
     # normalize dtypes
     app_int_dtypes = ['taskCpu', 'taskGpu']
