@@ -40,8 +40,9 @@ from spark_rapids_tools.tools.qualx.model import (
     compute_shapley_values,
     split_all_test,
     split_train_val,
+    train as train_model,
+    predict as predict_model,
 )
-from spark_rapids_tools.tools.qualx.model import train as train_model, predict as predict_model
 from spark_rapids_tools.tools.qualx.util import (
     compute_accuracy,
     ensure_directory,
@@ -187,7 +188,7 @@ def _get_qual_data(qual: Optional[str]) -> Tuple[
     return node_level_supp, qualtool_output, qual_metrics
 
 
-def _compute_summary(results: pd.DataFrame) -> pd.DataFrame:
+def _compute_summary(results: pd.DataFrame, label: str = 'Duration') -> pd.DataFrame:
     # summarize speedups per appId
     result_cols = [
         # qualx
@@ -195,10 +196,10 @@ def _compute_summary(results: pd.DataFrame) -> pd.DataFrame:
         'appId',
         'appDuration',
         'description',
-        'Duration',
-        'Duration_pred',
-        'Duration_supported',
         'scaleFactor',
+        label,
+        f'{label}_pred',
+        f'{label}_supported',
     ]
     cols = [col for col in result_cols if col in results.columns]
     # compute per-app stats
@@ -208,9 +209,9 @@ def _compute_summary(results: pd.DataFrame) -> pd.DataFrame:
         .groupby(group_by_cols)
         .agg(
             {
-                'Duration': 'sum',
-                'Duration_pred': 'sum',
-                'Duration_supported': 'sum',
+                label: 'sum',
+                f'{label}_pred': 'sum',
+                f'{label}_supported': 'sum',
                 'description': 'first',
             }
         )
@@ -220,15 +221,15 @@ def _compute_summary(results: pd.DataFrame) -> pd.DataFrame:
     # compute the fraction of app duration w/ supported ops
     # without qual tool output, this is the entire SQL duration
     # with qual tool output, this is the fraction of SQL w/ supported ops
-    summary['appDuration'] = summary['appDuration'].clip(lower=summary['Duration'])
+    summary['appDuration'] = summary['appDuration'].clip(lower=summary[label])
     summary['fraction_supported'] = (
-        summary['Duration_supported'] / summary['appDuration']
+        summary[f'{label}_supported'] / summary['appDuration']
     )
 
     # compute the predicted app duration from original app duration and predicted SQL duration
     # note: this assumes a non-SQL speedup of 1.0
     summary['appDuration_pred'] = (
-        summary['appDuration'] - summary['Duration'] + summary['Duration_pred']
+        summary['appDuration'] - summary[label] + summary[f'{label}_pred']
     )
     # compute the per-app speedup
     summary['speedup'] = summary['appDuration'] / summary['appDuration_pred']
@@ -238,9 +239,9 @@ def _compute_summary(results: pd.DataFrame) -> pd.DataFrame:
         'appDuration',
         'appDuration_actual',
         'appDuration_pred',
-        'Duration',
-        'Duration_pred',
-        'Duration_supported',
+        label,
+        f'{label}_pred',
+        f'{label}_supported',
         'gpuDuration',
     ]
     cols = [col for col in long_cols if col in summary.columns]
@@ -255,6 +256,7 @@ def _predict(
     *,
     split_fn: Callable[[pd.DataFrame], pd.DataFrame] = None,
     qual_tool_filter: Optional[str] = 'stage',
+    label: str = 'Duration',
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     results = pd.DataFrame(
         columns=[
@@ -262,9 +264,9 @@ def _predict(
             'appDuration',
             'sqlID',
             'scaleFactor',
-            'Duration',
-            'Duration_supported',
-            'Duration_pred',
+            label,
+            f'{label}_supported',
+            f'{label}_pred',
             'speedup_pred',
         ]
     )
@@ -272,8 +274,8 @@ def _predict(
         columns=[
             'appId',
             'appDuration',
-            'Duration_pred',
-            'Duration_supported',
+            f'{label}_pred',
+            f'{label}_supported',
             'fraction_supported',
             'appDuration_pred',
             'speedup',
@@ -286,13 +288,13 @@ def _predict(
             else 'raw'
         )
         logger.info('Predicting dataset (%s): %s', filter_str, dataset)
-        features, feature_cols, label_col = extract_model_features(input_df, {'default': split_fn})
+        features, feature_cols, label_col = extract_model_features(input_df, {'default': split_fn}, label=label)
         # note: dataset name is already stored in the 'appName' field
         try:
-            results = predict_model(xgb_model, features, feature_cols, label_col)
+            results = predict_model(xgb_model, features, feature_cols, label_col, label)
 
             # compute per-app speedups
-            summary = _compute_summary(results)
+            summary = _compute_summary(results, label)
 
             if 'y' in results:
                 results = results.loc[~results.y.isna()].reset_index(drop=True)
@@ -435,7 +437,7 @@ def models() -> None:
         print(model)
 
 
-def preprocess(dataset: str) -> None:
+def preprocess(dataset: str, label: Optional[str] = 'Duration_sum') -> None:
     """Extract raw features from profiler logs.
 
     Extract raw features from one or more profiler logs and save the resulting dataframe as a
@@ -456,7 +458,7 @@ def preprocess(dataset: str) -> None:
             logger.info('Invalidating cached profile_df: %s', preprocessed_data)
             os.remove(preprocessed_data)
 
-    load_datasets(dataset, ignore_test=False)
+    load_datasets(dataset, ignore_test=False, label=label)
 
 
 def train(
@@ -466,6 +468,7 @@ def train(
     n_trials: Optional[int] = 200,
     base_model: Optional[str] = None,
     features_csv_dir: Optional[str] = None,
+    label: Optional[str] = 'Duration',
 ) -> None:
     """Train an XGBoost model.
 
@@ -487,7 +490,7 @@ def train(
         Path to a directory containing one or more features.csv files.  These files are produced during prediction,
         and must be manually edited to provide a label column (Duration_speedup) and value.
     """
-    datasets, profile_df = load_datasets(dataset)
+    datasets, profile_df = load_datasets(dataset, label=label)
     dataset_list = sorted(list(datasets.keys()))
     profile_datasets = sorted(list(profile_df['appName'].unique()))
     logger.info('Training on: %s', dataset_list)
@@ -506,7 +509,10 @@ def train(
             plugin = load_plugin(plugin_path)
             split_functions[ds_name] = plugin.split_function
 
-    features, feature_cols, label_col = extract_model_features(profile_df, split_functions)
+    features, feature_cols, label_col = extract_model_features(
+        profile_df,
+        split_functions=split_functions,
+        label=label)
 
     if features_csv_dir:
         if not Path(features_csv_dir).exists():
@@ -578,12 +584,14 @@ def train(
 
 
 def predict(
-        platform: str,
-        qual: str,
-        output_info: dict,
-        *,
-        model: Optional[str] = None,
-        qual_tool_filter: Optional[str] = 'stage') -> pd.DataFrame:
+    platform: str,
+    qual: str,
+    output_info: dict,
+    *,
+    model: Optional[str] = None,
+    qual_tool_filter: Optional[str] = 'stage',
+    label: Optional[str] = 'Duration'
+) -> pd.DataFrame:
     """Predict GPU speedup given CPU logs."""
 
     node_level_supp, qual_tool_output, qual_metrics = _get_qual_data(qual)
@@ -692,7 +700,7 @@ def predict(
             shapley_values.to_csv(output_file, index=False)
 
         # compute per-app speedups
-        summary = _compute_summary(per_sql_summary)
+        summary = _compute_summary(per_sql_summary, label=label)
         # combine calculated summary with default predictions for missing apps
         per_app_summary = _add_entries_for_missing_apps(default_preds_df, summary)
         if INTERMEDIATE_DATA_ENABLED:
@@ -721,6 +729,7 @@ def _predict_cli(
     qual_output: Optional[str] = None,
     model: Optional[str] = None,
     qual_tool_filter: Optional[str] = 'stage',
+    label: Optional[str] = 'Duration',
 ) -> None:
     """Predict GPU speedup given CPU logs.
 
@@ -777,6 +786,7 @@ def _predict_cli(
         qual=qual,
         model=model,
         qual_tool_filter=qual_tool_filter,
+        label=label,
     )
 
 
@@ -787,6 +797,7 @@ def evaluate(
     *,
     model: Optional[str] = None,
     qual_tool_filter: Optional[str] = 'stage',
+    label: Optional[str] = 'Duration',
 ) -> None:
     """Evaluate model predictions against actual GPU speedup.
 
@@ -851,9 +862,14 @@ def evaluate(
     node_level_supp, qual_tool_output, _ = _get_qual_data(qual_dir)
 
     logger.info('Loading profiler tool CSV files.')
-    profile_df = load_profiles(datasets, profile_dir)  # w/ GPU rows
+    profile_df = load_profiles(datasets, profile_dir, label=label)  # w/ GPU rows
     filtered_profile_df = load_profiles(
-        datasets, profile_dir, node_level_supp, qual_tool_filter, qual_tool_output
+        datasets,
+        profile_dir,
+        node_level_supp=node_level_supp,
+        qual_tool_filter=qual_tool_filter,
+        qual_tool_output=qual_tool_output,
+        label=label
     )  # w/o GPU rows
     if profile_df.empty:
         raise ValueError(f'Warning: No profile data found for {dataset}')
@@ -869,6 +885,7 @@ def evaluate(
         profile_df,
         split_fn=split_fn,
         qual_tool_filter=qual_tool_filter,
+        label=label,
     )
 
     # app level ground truth
@@ -905,6 +922,7 @@ def evaluate(
         filtered_profile_df,
         split_fn=split_fn,
         qual_tool_filter=qual_tool_filter,
+        label=label,
     )
 
     # merge results and join w/ qual_preds
@@ -913,11 +931,11 @@ def evaluate(
         'sqlID': 'sqlID',
         'scaleFactor': 'scaleFactor',
         'appDuration': 'appDuration',
-        'Duration': 'Duration',
-        'gpuDuration': 'Actual GPU Duration',
+        label: label,
+        f'gpu_{label}': f'Actual GPU {label}',
         'y': 'Actual speedup',
-        'Duration_supported': 'QX Duration_supported',
-        'Duration_pred': 'QX Duration_pred',
+        f'{label}_supported': f'QX {label}_supported',
+        f'{label}_pred': f'QX {label}_pred',
         'y_pred': 'QX speedup',
         'split': 'split',
     }
@@ -929,9 +947,9 @@ def evaluate(
         'appDuration': 'appDuration',
         'sqlID': 'sqlID',
         'scaleFactor': 'scaleFactor',
-        'Duration': 'Duration',
-        'Duration_supported': 'QXS Duration_supported',
-        'Duration_pred': 'QXS Duration_pred',
+        label: label,
+        f'{label}_supported': f'QXS {label}_supported',
+        f'{label}_pred': f'QXS {label}_pred',
         # 'y_pred': 'QX speedup',
         'speedup_pred': 'QXS speedup',
     }
@@ -939,16 +957,17 @@ def evaluate(
 
     results_sql = raw_sql[raw_cols].merge(
         filtered_sql[filtered_sql_cols.values()],
-        on=['appId', 'sqlID', 'scaleFactor', 'appDuration', 'Duration'],
+        on=['appId', 'sqlID', 'scaleFactor', 'appDuration'],
         how='left',
+        suffixes=[None, '_filtered']
     )
 
     raw_app_cols = {
         'appId': 'appId',
         'appDuration': 'appDuration',
         'speedup_actual': 'Actual speedup',
-        'Duration_pred': 'QX Duration_pred',
-        'Duration_supported': 'QX Duration_supported',
+        f'{label}_pred': f'QX {label}_pred',
+        f'{label}_supported': f'QX {label}_supported',
         'fraction_supported': 'QX fraction_supported',
         'appDuration_pred': 'QX appDuration_pred',
         'speedup': 'QX speedup',
@@ -958,8 +977,8 @@ def evaluate(
     filtered_app_cols = {
         'appId': 'appId',
         'appDuration': 'appDuration',
-        'Duration_pred': 'QXS Duration_pred',
-        'Duration_supported': 'QXS Duration_supported',
+        f'{label}_pred': f'QXS {label}_pred',
+        f'{label}_supported': f'QXS {label}_supported',
         'fraction_supported': 'QXS fraction_supported',
         'appDuration_pred': 'QXS appDuration_pred',
         'speedup': 'QXS speedup',
@@ -985,13 +1004,18 @@ def evaluate(
         res = results_app if granularity == 'app' else results_sql
         res = res[res.split == 'test'] if split == 'test' else res
         if res.empty:
+            logger.error('No evaluation results found for dataset: %s', dataset)
+            continue
+
+        if 'Actual speedup' not in res:
+            logger.error('No GPU rows found for dataset: %s', dataset)
             continue
 
         scores = compute_accuracy(
             res,
             'Actual speedup',
             {'QX': 'QX speedup', 'QXS': 'QXS speedup'},
-            'appDuration' if granularity == 'app' else 'Duration',
+            'appDuration' if granularity == 'app' else label,
         )
 
         score_df = pd.DataFrame(scores)
@@ -1010,7 +1034,12 @@ def evaluate(
 
     # write mape scores as CSV
     scores_path = os.path.join(output_dir, f'{dataset_name}_mape.csv')
-    ds_scores_df = pd.concat(score_dfs)
+    if score_dfs:
+        ds_scores_df = pd.concat(score_dfs)
+    else:
+        ds_scores_df = pd.DataFrame(
+            columns=['model', 'platform', 'dataset', 'granularity', 'split', 'score', 'QX', 'QXS']
+        )
     ds_scores_df.to_csv(scores_path, index=False)
 
     # write results as CSV

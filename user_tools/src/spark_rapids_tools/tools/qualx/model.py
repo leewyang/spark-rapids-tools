@@ -36,13 +36,12 @@ FILTER_SPILLS = False  # remove queries with any disk/mem spill
 LOG_LABEL = True  # use log(y) as target
 
 
-# non-training features (and labels)
+# non-training features
 ignored_features = {
     'appDuration',
     'appId',
     'appName',
     'description',
-    'Duration',
     'fraction_supported',
     'jobStartTime_min',
     'pluginEnabled',
@@ -50,11 +49,8 @@ ignored_features = {
     'scaleFactor',
     'sparkRuntime',
     'sparkVersion',
-    'sqlID'
+    'sqlID',
 }
-
-expected_model_features = expected_raw_features - ignored_features
-
 
 def train(
     cpu_aug_tbl: pd.DataFrame,
@@ -74,13 +70,14 @@ def train(
         cpu_aug_tbl[label_col] = np.log(cpu_aug_tbl[label_col])
 
     # remove nan label entries
-    original_num_rows = cpu_aug_tbl.shape[0]
-    cpu_aug_tbl = cpu_aug_tbl.loc[~cpu_aug_tbl[label_col].isna()].reset_index(
-        drop=True
-    )
-    if cpu_aug_tbl.shape[0] < original_num_rows:
+    original_num_rows = len(cpu_aug_tbl)
+    cpu_aug_tbl = cpu_aug_tbl.loc[~cpu_aug_tbl[label_col].isna()].reset_index(drop=True)
+    num_rows = len(cpu_aug_tbl)
+    if num_rows < original_num_rows:
         logger.warning(
-            'Removed %d rows with NaN label values', original_num_rows - cpu_aug_tbl.shape[0]
+            'Removed %d rows with NaN label values, %d rows remaining',
+            original_num_rows - num_rows,
+            num_rows
         )
 
     # split into train/val/test sets
@@ -149,6 +146,7 @@ def predict(
     cpu_aug_tbl: pd.DataFrame,
     feature_cols: List[str],
     label_col: str,
+    label: str = 'Duration',
 ) -> pd.DataFrame:
     """Use model to predict on feature data."""
     model_features = xgb_model.feature_names
@@ -180,12 +178,14 @@ def predict(
         'appDuration',
         'sqlID',
         'scaleFactor',
-        'Duration',
         'fraction_supported',
         'description',
     ]
+
     if 'split' in cpu_aug_tbl:
         select_columns.append('split')
+    if label in cpu_aug_tbl:
+        select_columns.append(label)
 
     # join predictions with select input features
     results_df = (
@@ -196,31 +196,40 @@ def predict(
 
     if 'y' in results_df.columns:
         # reconstruct original gpu duration for validation purposes
-        results_df['gpuDuration'] = results_df['Duration'] / results_df['y']
-        results_df['gpuDuration'] = np.floor(results_df['gpuDuration'])
+        results_df[f'gpu_{label}'] = results_df[label] / results_df['y']
+        results_df[f'gpu_{label}'] = np.floor(results_df[f'gpu_{label}'])
 
     # adjust raw predictions with stage/sqlID filtering of unsupported ops
-    results_df['Duration_pred'] = results_df['Duration'] * (
+    results_df[f'{label}_pred'] = results_df[label] * (
         1.0
         - results_df['fraction_supported']
         + (results_df['fraction_supported'] / results_df['y_pred'])
     )
     # compute fraction of duration in supported ops
-    results_df['Duration_supported'] = (
-        results_df['Duration'] * results_df['fraction_supported']
+    results_df[f'{label}_supported'] = (
+        results_df[label] * results_df['fraction_supported']
     )
     # compute adjusted speedup (vs. raw speedup prediction: 'y_pred')
     # without qual data, this should be the same as the raw 'y_pred'
-    results_df['speedup_pred'] = results_df['Duration'] / results_df['Duration_pred']
+    results_df['speedup_pred'] = results_df[label] / results_df[f'{label}_pred']
     results_df = results_df.drop(columns=['fraction_supported'])
 
     return results_df
 
 
 def extract_model_features(
-    df: pd.DataFrame, split_functions: Mapping[str, Callable[[pd.DataFrame], pd.DataFrame]] = None
+    df: pd.DataFrame,
+    split_functions: Mapping[str, Callable[[pd.DataFrame], pd.DataFrame]] = None,
+    *,
+    label: str = 'Duration'
 ) -> Tuple[pd.DataFrame, List[str], str]:
     """Extract model features from raw features."""
+    expected_model_features = expected_raw_features - ignored_features
+    expected_model_features.remove(label)
+    if label == 'duration_sum':
+        # for 'duration_sum' labe, also remove 'duration_mean' since it's derived from duration_sum
+        expected_model_features.remove('duration_mean')
+
     missing = expected_raw_features - set(df.columns)
     if missing:
         logger.warning('Input dataframe is missing expected raw features: %s', missing)
@@ -251,16 +260,15 @@ def extract_model_features(
                 cpu_aug_tbl.shape[0],
             )
         # train/validation dataset with CPU + GPU runs
-        gpu_aug_tbl = gpu_aug_tbl[
-            [
+        gpu_cols = [
                 'appName',
                 'scaleFactor',
                 'sqlID',
-                'Duration',
                 'description',
+                label
             ]
-        ]
-        gpu_aug_tbl = gpu_aug_tbl.rename(columns={'Duration': 'xgpu_Duration'})
+        gpu_aug_tbl = gpu_aug_tbl[gpu_cols]
+        gpu_aug_tbl = gpu_aug_tbl.rename(columns={label: f'xgpu_{label}'})
         cpu_aug_tbl = cpu_aug_tbl.merge(
             gpu_aug_tbl,
             on=['appName', 'scaleFactor', 'sqlID', 'description'],
@@ -269,7 +277,7 @@ def extract_model_features(
 
         # warn for possible mismatched sqlIDs
         num_rows = len(cpu_aug_tbl)
-        num_na = cpu_aug_tbl['xgpu_Duration'].isna().sum()
+        num_na = cpu_aug_tbl[f'xgpu_{label}'].isna().sum()
         if (
             num_na / num_rows > 0.05
         ):  # arbitrary threshold, misaligned sqlIDs still may 'match' most of the time
@@ -279,14 +287,14 @@ def extract_model_features(
                 num_rows,
             )
 
-        # calculate Duration_speedup
-        cpu_aug_tbl['Duration_speedup'] = (
-            cpu_aug_tbl['Duration'] / cpu_aug_tbl['xgpu_Duration']
+        # calculate speedup
+        cpu_aug_tbl[f'{label}_speedup'] = (
+            cpu_aug_tbl[label] / cpu_aug_tbl[f'xgpu_{label}']
         )
-        cpu_aug_tbl = cpu_aug_tbl.drop(columns=['xgpu_Duration'])
+        cpu_aug_tbl = cpu_aug_tbl.drop(columns=[f'xgpu_{label}'])
 
-        # use Duration_speedup as label
-        label_col = 'Duration_speedup'
+        # final speedup label col
+        label_col = f'{label}_speedup'
     else:
         # inference dataset with CPU runs only
         label_col = None
