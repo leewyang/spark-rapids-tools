@@ -43,6 +43,7 @@ from spark_rapids_tools.tools.qualx.preprocess import (
 from spark_rapids_tools.tools.qualx.model import (
     extract_model_features,
     compute_shapley_values,
+    split_features,
 )
 from spark_rapids_tools.tools.qualx.model import train as train_model, predict as predict_model
 from spark_rapids_tools.tools.qualx.util import (
@@ -309,7 +310,8 @@ def _predict(
             else 'raw'
         )
         logger.debug('Predicting dataset (%s): %s', filter_str, dataset)
-        features, feature_cols, label_col = extract_model_features(input_df, {'default': split_fn})
+        features, feature_cols, label_col = extract_model_features(input_df)
+        features = split_features(features, {'default': split_fn})
         # note: dataset name is already stored in the 'appName' field
         try:
             results = predict_model(xgb_model, features, feature_cols, label_col)
@@ -542,7 +544,8 @@ def train(
             split_fn = _get_split_fn(ds_meta['split_function'])
             split_functions[ds_name] = split_fn
 
-    features, feature_cols, label_col = extract_model_features(profile_df, split_functions)
+    features, feature_cols, label_col = extract_model_features(profile_df)
+    features = split_features(features, split_functions)
 
     if features_csv_dir:
         if not Path(features_csv_dir).exists():

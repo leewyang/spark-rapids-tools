@@ -163,6 +163,13 @@ xgboost:
         assert config.split_functions['train']['args']['threshold'] == 2.0
         assert config.split_functions['test'] == 'split_all_test.py'
 
+    def test_model_features(self, qualx_config_params):
+        """Test that model_features can be a list of strings or dictionaries"""
+        config_params = qualx_config_params.copy()
+        config_params['model_features'] = [{'path': 'weight_label.py', 'args': {'threshold': 1.0}}]
+        config = QualxConfig(**config_params)
+        assert config.model_features == [{'path': 'weight_label.py', 'args': {'threshold': 1.0}}]
+
 
 class TestQualxPipelineConfig(SparkRapidsToolsUT):
     """Test class for QualxPipelineConfig"""

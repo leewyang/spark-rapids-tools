@@ -86,6 +86,13 @@ class QualxConfig(BaseConfig):
         description='OPTIONAL: Path to alignment directory.',
         examples=['alignment'])
 
+    model_features: Optional[List[dict]] = Field(
+        default=[],
+        description='OPTIONAL: List of model features plugins to use.',
+        examples=[[
+            {'path': 'weight_label.py', 'args': {'threshold': 1.0, 'positive': 5.0}},
+        ]])
+
     @model_validator(mode='after')
     def check_env_overrides(self):
         """Check for environment variable overrides after model initialization."""

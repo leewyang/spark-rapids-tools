@@ -23,9 +23,9 @@ import pandas as pd
 import xgboost as xgb
 from xgboost import Booster
 
-from spark_rapids_tools.tools.qualx.config import get_label
+from spark_rapids_tools.tools.qualx.config import get_config, get_label
 from spark_rapids_tools.tools.qualx.preprocess import expected_raw_features
-from spark_rapids_tools.tools.qualx.util import get_logger
+from spark_rapids_tools.tools.qualx.util import get_abs_path, get_logger, load_plugin
 # Import optional packages
 try:
     import optuna
@@ -51,7 +51,8 @@ ignored_features = {
     'scaleFactor',
     'sparkRuntime',
     'sparkVersion',
-    'sqlID'
+    'sqlID',
+    'weight',
 }
 
 
@@ -100,7 +101,14 @@ def train(
     cpu_aug_tbl = cpu_aug_tbl.sort_values('description').reset_index(drop=True)
     x_tune = cpu_aug_tbl.loc[cpu_aug_tbl['split'] != 'test', feature_cols]
     y_tune = cpu_aug_tbl.loc[cpu_aug_tbl['split'] != 'test', label_col]
-    d_tune = xgb.DMatrix(x_tune, y_tune)
+
+    if 'weight' in cpu_aug_tbl.columns:
+        sample_weights = cpu_aug_tbl.loc[cpu_aug_tbl['split'] != 'test', 'weight']
+    else:
+        # set sample weights to 1.0 if not provided
+        sample_weights = np.ones_like(y_tune)
+
+    d_tune = xgb.DMatrix(x_tune, y_tune, weight=sample_weights)
 
     if base_model:
         # use hyperparameters from base model (w/ modifications to learning rate and num trees)
@@ -116,7 +124,7 @@ def train(
         n_estimators = int(float(n_estimators) * 1.1)              # increase n_estimators
     else:
         # use optuna hyper-parameter tuning
-        best_params = tune_hyperparameters(x_tune, y_tune, n_trials)
+        best_params = tune_hyperparameters(x_tune, y_tune, n_trials, sample_weights)
         logger.info(best_params)
 
         # train model w/ the best hyperparameters using data splits
@@ -222,9 +230,10 @@ def extract_model_features(
     split_functions: Mapping[str, Callable[[pd.DataFrame], pd.DataFrame]] = None,
 ) -> Tuple[pd.DataFrame, List[str], str]:
     """Extract model features from raw features."""
-    label = get_label()
-    expected_model_features = expected_raw_features() - ignored_features
-    expected_model_features.remove(label)
+    cfg = get_config()
+    label = cfg.label
+
+    # check for missing raw features
     missing = expected_raw_features() - set(df.columns)
     if missing:
         logger.warning('Input dataframe is missing expected raw features: %s', missing)
@@ -295,15 +304,30 @@ def extract_model_features(
         # inference dataset with CPU runs only
         label_col = None
 
-    # add aggregations for time features
-    # time_cols = ['executorCPUTime', 'executorDeserializeTime', 'executorDeserializeCPUTime', 'executorRunTime',
-    #     'gettingResultTime', 'jvmGCTime', 'resultSerializationTime', 'sr_fetchWaitTime', 'sw_writeTime']
-    # time_agg_cols = [cc + '_sum' for cc in time_cols]
-    # time_ratio_cols = [cc for cc in cpu_aug_tbl.columns if cc.endswith('TimeRatio')]
+    # compute expected model features
+    expected_model_features = expected_raw_features() - ignored_features
+    expected_model_features.remove(label)
 
-    # TODO: investigate leaky_cols
-    # leaky_cols = ['duration_min', 'duration_max', 'duration_mean'] + time_agg_cols + time_ratio_cols
-    # ignore_cols = ignore_cols  #+ leaky_cols
+    # load the model feature plugins
+    model_features_plugins = [
+        {
+            **model_feature_plugin,
+            'plugin': load_plugin(get_abs_path(model_feature_plugin['path'], ['model_features', 'plugins']))
+        } for model_feature_plugin in cfg.model_features
+    ]
+
+    # invoke model feature functions
+    for model_features_plugin in model_features_plugins:
+        plugin_features = model_features_plugin['plugin'].expected_model_features
+        if plugin_features.intersection(expected_model_features):
+            raise ValueError(
+                f'Plugin {model_features_plugin["path"]} has duplicate expected model features: ',
+                {plugin_features.intersection(expected_model_features)}
+            )
+        expected_model_features = expected_model_features | plugin_features
+        plugin_fn = model_features_plugin['plugin'].extract_model_features
+        plugin_args = model_features_plugin['args']
+        cpu_aug_tbl = plugin_fn(cpu_aug_tbl, **plugin_args)
 
     # remove non-training columns
     feature_cols = [cc for cc in cpu_aug_tbl.columns if cc not in ignored_features]
@@ -321,44 +345,64 @@ def extract_model_features(
 
     # add train/val/test split column, if split function(s) provided
     if split_functions:
-        # ensure 'split' column in cpu_aug_tbl
-        if 'split' not in cpu_aug_tbl.columns:
-            cpu_aug_tbl['split'] = pd.Series(dtype='str')
+        logger.warning('split_functions argument is deprecated, use split_features() instead.')
+        cpu_aug_tbl = split_features(cpu_aug_tbl, split_functions)
 
-        # save schema, since df.update() defaults all dtypes to floats
-        df_schema = cpu_aug_tbl.dtypes
-
-        # extract default split function, if present
-        default_split_fn = split_functions.pop('default') if 'default' in split_functions else None
-
-        # handle all other dataset-specific split functions
-        for ds_name, split_fn in split_functions.items():
-            dataset_df = cpu_aug_tbl.loc[
-                (cpu_aug_tbl.appName == ds_name) | (cpu_aug_tbl.appName.str.startswith(f'{ds_name}:'))
-            ]
-            modified_df = split_fn(dataset_df)
-            if modified_df.index.equals(dataset_df.index):
-                cpu_aug_tbl.update(modified_df)
-                cpu_aug_tbl.astype(df_schema)
-            else:
-                raise ValueError(f'Plugin: split_function for {ds_name} unexpectedly modified row indices.')
-            cpu_aug_tbl.update(dataset_df)
-
-        # handle default split function
-        if default_split_fn:
-            default_df = cpu_aug_tbl.loc[~cpu_aug_tbl.appName.isin(split_functions.keys())]
-            for ds_name in split_functions.keys():
-                default_df = default_df.loc[~default_df.appName.str.startswith(f'{ds_name}:')]
-            modified_default_df = default_split_fn(default_df)
-            if modified_default_df.index.equals(default_df.index):
-                cpu_aug_tbl.update(modified_default_df)
-                cpu_aug_tbl.astype(df_schema)
-            else:
-                raise ValueError('Default split_function unexpectedly modified row indices.')
     return cpu_aug_tbl, feature_cols, label_col
 
 
-def tune_hyperparameters(x, y, n_trials: int = 200) -> dict:
+def split_features(
+    features: pd.DataFrame,
+    split_functions: Mapping[str, Callable[[pd.DataFrame], pd.DataFrame]] = None,
+) -> pd.DataFrame:
+    """Split features into train/val/test sets.
+
+    This adds/modifies the 'split' column in the original features dataframe.
+
+    Parameters
+    ----------
+    features: pd.DataFrame
+        Features to split.
+    split_functions: Mapping[str, Callable[[pd.DataFrame], pd.DataFrame]]
+        Split functions to apply to each dataset, or use 'default' split function.
+    """
+    # ensure 'split' column in cpu_aug_tbl
+    if 'split' not in features.columns:
+        features['split'] = pd.Series(dtype='str')
+
+    # save schema, since df.update() defaults all dtypes to floats
+    df_schema = features.dtypes
+
+    # extract default split function, if present
+    default_split_fn = split_functions.pop('default') if 'default' in split_functions else None
+
+    # handle all other dataset-specific split functions
+    for ds_name, split_fn in split_functions.items():
+        dataset_df = features.loc[
+            (features.appName == ds_name) | (features.appName.str.startswith(f'{ds_name}:'))
+        ]
+        modified_df = split_fn(dataset_df)
+        if modified_df.index.equals(dataset_df.index):
+            features.update(modified_df)
+            features.astype(df_schema)
+        else:
+            raise ValueError(f'Plugin: split_function for {ds_name} unexpectedly modified row indices.')
+        features.update(dataset_df)
+
+    # handle default split function
+    if default_split_fn:
+        default_df = features
+        modified_default_df = default_split_fn(default_df)
+        if modified_default_df.index.equals(default_df.index):
+            features.update(modified_default_df)
+            features.astype(df_schema)
+        else:
+            raise ValueError('Default split_function unexpectedly modified row indices.')
+
+    return features
+
+
+def tune_hyperparameters(x, y, n_trials: int = 200, sample_weights: Optional[np.ndarray] = None) -> dict:
     # use full training set for hyperparameter search
 
     xgb_tmp = xgb.XGBRegressor(objective='reg:squarederror')
@@ -387,7 +431,10 @@ def tune_hyperparameters(x, y, n_trials: int = 200) -> dict:
     )
 
     # run the search
-    optuna_search.fit(x, y)
+    if sample_weights is not None:
+        optuna_search.fit(x, y, sample_weight=sample_weights)
+    else:
+        optuna_search.fit(x, y)
 
     return optuna_search.best_params_
 
