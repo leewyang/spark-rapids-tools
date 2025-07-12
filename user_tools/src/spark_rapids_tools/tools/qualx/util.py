@@ -30,11 +30,11 @@ from typing import Callable, Dict, List, Optional, Tuple, Union
 import numpy as np
 import pandas as pd
 from pyaml_env import parse_config
-from spark_rapids_tools.storagelib.cspfs import CspFs
-from spark_rapids_tools.storagelib.s3.s3fs import S3aFs
 from tabulate import tabulate
 
 from spark_rapids_tools.cmdli.dev_cli import DevCLI
+from spark_rapids_tools.storagelib.cspfs import CspFs
+from spark_rapids_tools.storagelib.s3.s3fs import S3aFs
 from spark_rapids_tools.tools.core.qual_handler import QualCoreHandler
 from spark_rapids_tools.tools.qualx.config import get_config, get_label, parse_hadoop_config
 
@@ -232,6 +232,7 @@ def get_dataset_platforms(dataset: str) -> Tuple[List[str], str]:
 
     return platforms, dataset_base
 
+
 def get_fs_obj(tools_config: str) -> CspFs:
     """Get the file system object from the tools config."""
     fs_obj = None
@@ -245,10 +246,11 @@ def get_fs_obj(tools_config: str) -> CspFs:
         if hadoop_conf_dir:
             hadoop_config = parse_hadoop_config(os.path.join(hadoop_conf_dir, 'hdfs-site.xml'))
             fs_obj = S3aFs(access_key=hadoop_config['fs.s3a.access.key'],
-                            secret_key=hadoop_config['fs.s3a.secret.key'],
-                            endpoint_override=hadoop_config['fs.s3a.endpoint'],
-                            region=hadoop_config['fs.s3a.region'])
+                           secret_key=hadoop_config['fs.s3a.secret.key'],
+                           endpoint_override=hadoop_config['fs.s3a.endpoint'],
+                           region=hadoop_config['fs.s3a.region'])
     return fs_obj
+
 
 def compute_accuracy(
     results: pd.DataFrame, y: str, y_preds: Dict[str, str], weight: str = None

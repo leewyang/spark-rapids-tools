@@ -27,7 +27,6 @@ from typing import Type
 import xml.etree.ElementTree as ET
 
 from spark_rapids_pytools.common.utilities import Utils
-from spark_rapids_tools.storagelib.cspfs import CspFs
 from spark_rapids_tools.tools.qualx.qualx_config import QualxConfig
 
 
