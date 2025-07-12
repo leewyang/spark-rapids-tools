@@ -37,3 +37,10 @@ class S3Fs(CspFs):
     provided, then attempts to initialize from AWS environment variables,
     otherwise both access_key and secret_key must be provided.
     """
+
+
+@register_fs_class('s3a', 'S3FileSystem')
+class S3aFs(CspFs):
+    """
+    Implementation of FileSystem for S3-backed filesystem on top of pyArrow, for s3a:// scheme
+    """

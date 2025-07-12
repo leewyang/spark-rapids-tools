@@ -20,3 +20,8 @@ from ..csppath import CspPath, register_path_class
 @register_path_class("s3")
 class S3Path(CspPath):
     protocol_prefix: str = "s3://"
+
+
+@register_path_class("s3a")
+class S3aPath(CspPath):
+    protocol_prefix: str = "s3a://"

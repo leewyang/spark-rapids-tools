@@ -23,7 +23,11 @@ Environment variables:
 - SPARK_RAPIDS_TOOLS_JAR: path to Spark RAPIDS Tools JAR file.
 """
 from typing import Type
+
+import xml.etree.ElementTree as ET
+
 from spark_rapids_pytools.common.utilities import Utils
+from spark_rapids_tools.storagelib.cspfs import CspFs
 from spark_rapids_tools.tools.qualx.qualx_config import QualxConfig
 
 
@@ -50,3 +54,19 @@ def get_cache_dir() -> str:
 def get_label() -> str:
     """Get targeted label column for XGBoost model."""
     return get_config().label
+
+
+def parse_hadoop_config(xml_file):
+    """Parse Hadoop configuration XML to dictionary."""
+    tree = ET.parse(xml_file)
+    root = tree.getroot()
+
+    config = {}
+    for property_elem in root.findall('property'):
+        name = property_elem.find('name')
+        value = property_elem.find('value')
+
+        if name is not None and value is not None:
+            config[name.text] = value.text
+
+    return config

@@ -14,10 +14,12 @@
 
 """init file of the storage library of S3"""
 
-from .s3fs import S3Fs
-from .s3path import S3Path
+from .s3fs import S3Fs, S3aFs
+from .s3path import S3Path, S3aPath
 
 __all__ = [
     "S3Fs",
+    "S3aFs",
     "S3Path",
+    "S3aPath",
 ]

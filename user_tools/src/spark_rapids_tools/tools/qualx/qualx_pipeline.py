@@ -25,11 +25,14 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+import pyarrow
 
+from spark_rapids_tools.storagelib.cspfs import CspFs
+from spark_rapids_tools.storagelib.csppath import CspPath
 from spark_rapids_tools.tools.qualx.config import get_config
 from spark_rapids_tools.tools.qualx.qualx_config import QualxPipelineConfig
 from spark_rapids_tools.tools.qualx.qualx_main import preprocess, train, evaluate
-from spark_rapids_tools.tools.qualx.util import get_abs_path, get_logger, ensure_directory, find_paths
+from spark_rapids_tools.tools.qualx.util import get_abs_path, get_fs_obj, get_logger, ensure_directory, find_paths
 
 logger = get_logger(__name__)
 
@@ -40,7 +43,9 @@ def _create_dataset_json(
         datasets: str,
         platform: str,
         dataset_name: str,
-        split_fn: Union[str, dict]) -> str:
+        split_fn: Union[str, dict],
+        filter_app_ids: bool = False,
+        fs_obj: CspFs = None) -> str:
     """Create a dataset JSON file from alignment CSV and eventlogs.
 
     Parameters
@@ -57,6 +62,10 @@ def _create_dataset_json(
         Base name for the dataset
     split_fn: Union[str, dict]
         Path to split function, or dictionary of path and args
+    filter_app_ids: bool
+        Filter eventlogs by app_ids in delta_df, default: False
+    fs_obj: CspFs
+        File system object
 
     Returns
     -------
@@ -77,11 +86,20 @@ def _create_dataset_json(
     # get list of all eventlogs for targeted CPU and GPU appIds
     # note: getting direct paths to files, since the parent directory may contain extra eventlogs
     eventlogs = []
-    for eventlog_path in ds_eventlogs:
-        if os.path.isdir(eventlog_path):
-            eventlogs.extend(find_paths(eventlog_path, lambda f: any(app_id in f for app_id in app_ids)))
+    for path in ds_eventlogs:
+        csp_path = CspPath(path, fs_obj=fs_obj)
+        if filter_app_ids and csp_path.is_dir():
+            selector = pyarrow.fs.FileSelector(csp_path.no_scheme)
+            file_info_list = fs_obj.get_file_info(selector)
+            # get scheme from fs_obj
+            eventlogs.extend([
+                f'{csp_path.protocol_prefix}{file_info.path}'
+                for file_info in file_info_list
+                if any(app_id in file_info.path for app_id in app_ids)
+            ])
         else:
-            eventlogs.append(eventlog_path)
+            eventlogs.append(csp_path.path)
+
     # remove duplicates
     eventlogs = sorted(list(set(eventlogs)))
 
@@ -203,11 +221,15 @@ def train_and_evaluate(
     # read config
     cfg = get_config(config, cls=QualxPipelineConfig, reload=True)
 
+    # get fs_obj for remote paths
+    fs_obj = get_fs_obj(cfg.tools_config)
+
     # extract config values
     alignment_dir = get_abs_path(cfg.alignment_dir)
-    cpu_eventlogs = [get_abs_path(f) for f in cfg.eventlogs['cpu']]
-    gpu_eventlogs = [get_abs_path(f) for f in cfg.eventlogs['gpu']]
+    cpu_eventlogs = cfg.eventlogs['cpu']
+    gpu_eventlogs = cfg.eventlogs['gpu']
     zipped_eventlogs = cfg.eventlogs.get('zipped', True)
+    filter_app_ids = cfg.eventlogs.get('filter_app_ids', False)
     datasets = get_abs_path(cfg.datasets)
     platform = cfg.platform
     dataset_basename = cfg.dataset_name
@@ -293,7 +315,9 @@ def train_and_evaluate(
             datasets,
             platform,
             ds_name,
-            split_fn=test_split_fn
+            split_fn=test_split_fn,
+            filter_app_ids=filter_app_ids,
+            fs_obj=fs_obj,
         )
 
         preprocess(datasets)
@@ -323,7 +347,9 @@ def train_and_evaluate(
         datasets,
         platform,
         ds_name,
-        split_fn=train_split_fn
+        split_fn=train_split_fn,
+        filter_app_ids=filter_app_ids,
+        fs_obj=fs_obj,
     )
 
     # preprocess the data
