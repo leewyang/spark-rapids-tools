@@ -90,7 +90,7 @@ def _create_dataset_json(
         csp_path = CspPath(path, fs_obj=fs_obj)
         if filter_app_ids and csp_path.is_dir():
             selector = pyarrow.fs.FileSelector(csp_path.no_scheme)
-            file_info_list = fs_obj.get_file_info(selector)
+            file_info_list = csp_path.fs_obj.get_file_info(selector)
             # get scheme from fs_obj
             eventlogs.extend([
                 f'{csp_path.protocol_prefix}{file_info.path}'
@@ -98,7 +98,7 @@ def _create_dataset_json(
                 if any(app_id in file_info.path for app_id in app_ids)
             ])
         else:
-            eventlogs.append(csp_path.path)
+            eventlogs.append(path)
 
     # remove duplicates
     eventlogs = sorted(list(set(eventlogs)))

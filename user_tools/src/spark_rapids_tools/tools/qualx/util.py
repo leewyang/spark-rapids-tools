@@ -236,19 +236,20 @@ def get_dataset_platforms(dataset: str) -> Tuple[List[str], str]:
 def get_fs_obj(tools_config: str) -> CspFs:
     """Get the file system object from the tools config."""
     fs_obj = None
-    tools_cfg = parse_config(tools_config)
-    if tools_cfg.get('runtime', {}).get('dependencies', []):
-        hadoop_conf_dir = None
-        for dep in tools_cfg['runtime']['dependencies']:
-            if dep['name'] == 'hadoop-conf-dir':
-                hadoop_conf_dir = dep['uri']
-                break
-        if hadoop_conf_dir:
-            hadoop_config = parse_hadoop_config(os.path.join(hadoop_conf_dir, 'hdfs-site.xml'))
-            fs_obj = S3aFs(access_key=hadoop_config['fs.s3a.access.key'],
-                           secret_key=hadoop_config['fs.s3a.secret.key'],
-                           endpoint_override=hadoop_config['fs.s3a.endpoint'],
-                           region=hadoop_config['fs.s3a.region'])
+    if tools_config:
+        tools_cfg = parse_config(tools_config)
+        if tools_cfg.get('runtime', {}).get('dependencies', []):
+            hadoop_conf_dir = None
+            for dep in tools_cfg['runtime']['dependencies']:
+                if dep['name'] == 'hadoop-conf-dir':
+                    hadoop_conf_dir = dep['uri']
+                    break
+            if hadoop_conf_dir:
+                hadoop_config = parse_hadoop_config(os.path.join(hadoop_conf_dir, 'hdfs-site.xml'))
+                fs_obj = S3aFs(access_key=hadoop_config['fs.s3a.access.key'],
+                            secret_key=hadoop_config['fs.s3a.secret.key'],
+                            endpoint_override=hadoop_config['fs.s3a.endpoint'],
+                            region=hadoop_config['fs.s3a.region'])
     return fs_obj
 
 
