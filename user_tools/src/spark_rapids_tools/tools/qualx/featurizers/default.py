@@ -159,6 +159,7 @@ expected_raw_features = {
     'sw_writeTime_mean',  # job_level_aggregated_task_metrics (sw_writeTime_sum)
     'taskCpu',  # executor_information
     'taskGpu',  # executor_information
+    'totalCoreSeconds',  # application_information
 }
 
 
@@ -349,6 +350,7 @@ def extract_raw_features(
         'executorOffHeap',
         'taskCpu',
         'taskGpu',
+        'totalCoreSeconds',
     ]
 
     sql_job_agg_tbl['appId'] = sql_job_agg_tbl['appId'].str.strip()
