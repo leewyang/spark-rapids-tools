@@ -1329,7 +1329,7 @@ reportDefinitions:
       - label: coreRawWholeStageCSV
         description: >-
           TBD
-        fileName: wholeStagecodegen_mapping.csv
+        fileName: wholestagecodegen_mapping.csv
         fileFormat: CSV
         scope: per-app
         columns:

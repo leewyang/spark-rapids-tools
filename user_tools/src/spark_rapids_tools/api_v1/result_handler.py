@@ -40,7 +40,8 @@ class ResultHandlerBaseMeta:    # pylint: disable=too-few-public-methods
     def find_report_paths(
             cls,
             root_path: Union[str, BoundedCspPath],
-            filter_cb: Optional[Callable[[BoundedCspPath], bool]] = None
+            filter_cb: Optional[Callable[[BoundedCspPath], bool]] = None,
+            recursive: bool = False
     ) -> Union[List[str], List[BoundedCspPath]]:
         """
         Find all report directory paths under the given root that match the class-defined `id_regex` pattern.
@@ -53,7 +54,7 @@ class ResultHandlerBaseMeta:    # pylint: disable=too-few-public-methods
             path=root_path,
             pattern=cls.id_regex,
             item_type=FileType.Directory,
-            recursive=False
+            recursive=recursive
         )
         if filter_cb is None:
             filtered_csp_paths = report_csps

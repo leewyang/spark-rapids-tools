@@ -33,7 +33,8 @@ class QualificationCore(RapidsJarTool[QualCore]):
 
     def _init_rapids_arg_list(self) -> List[str]:
         rapids_threads_args = self._get_rapids_threads_count(self.name)
-        return super()._init_rapids_arg_list() + ['--per-sql'] + rapids_threads_args
+        autotuner_rapids_args = self._create_autotuner_rapids_args()
+        return super()._init_rapids_arg_list() + ['--per-sql'] + rapids_threads_args + autotuner_rapids_args
 
     def _process_output(self) -> None:
         if not self._evaluate_rapids_jar_tool_output_exist():

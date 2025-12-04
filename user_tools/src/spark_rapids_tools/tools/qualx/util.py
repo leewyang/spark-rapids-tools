@@ -30,7 +30,7 @@ import numpy as np
 import pandas as pd
 from tabulate import tabulate
 
-from spark_rapids_tools.api_v1 import QualWrapper, QualCore
+from spark_rapids_tools.api_v1 import ProfCore, QualWrapper, QualCore
 from spark_rapids_tools.cmdli.dev_cli import DevCLI
 from spark_rapids_tools.tools.qualx.config import get_config, get_label
 from spark_rapids_tools.utils.util import temp_file_with_contents
@@ -342,19 +342,38 @@ def run_profiler_tool(platform: str, eventlogs: List[str], output_dir: str, tool
     # Write eventlogs list to a file to avoid long command lines
     ensure_directory(output_dir)
     eventlogs_text = ''.join(os.path.expandvars(e) + '\n' for e in eventlogs)
+    output_dirs = []
     with temp_file_with_contents(eventlogs_text, suffix='.txt') as eventlogs_file:
         logger.info('Triggering profiling with %d eventlogs via file: %s', len(eventlogs), eventlogs_file)
 
         dev_cli = DevCLI()
-        dev_cli.profiling_core(
+        run_out_path = dev_cli.profiling_core(
             eventlogs=eventlogs_file,
             platform=platform,
             output_folder=output_dir,
             tools_jar=None,
             tools_config_file=tools_config,
-            verbose=True
+            verbose=True,
+            auto_tuner=True
         )
+        if run_out_path is not None:
+            output_dirs.append(run_out_path)
+        else:
+            logger.warning(
+                'Profiler tool on %s did not produce any output.', eventlogs_file)
 
+    prof_handlers: List[ProfCore] = []
+    for output_path in output_dirs:
+        try:
+            handler = ProfCore(output_path)
+            prof_handlers.append(handler)
+        except Exception as e:  # pylint: disable=broad-except
+            logger.warning('Failed to create ProfCoreHandler for %s: %s', output_path, e)
+
+    if not prof_handlers:
+        logger.warning('No valid profiler handlers were created from eventlogs')
+
+    return prof_handlers
 
 def run_qualification_tool(
         platform: str,
@@ -387,7 +406,8 @@ def run_qualification_tool(
                     output_folder=output_dir,
                     tools_jar=None,
                     tools_config_file=tools_config,
-                    verbose=False
+                    verbose=False,
+                    auto_tuner=True
                 )
                 if run_out_path is not None:
                     output_dirs.append(run_out_path)

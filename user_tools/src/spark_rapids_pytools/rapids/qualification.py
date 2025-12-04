@@ -496,10 +496,7 @@ class Qualification(QualificationCore):
         return super()._generate_section_content(sec_conf)
 
     def _init_rapids_arg_list(self) -> List[str]:
-        return super()._init_rapids_arg_list() + self._init_rapids_arg_list_for_qual()
-
-    def _init_rapids_arg_list_for_qual(self) -> List[str]:
-        return self._create_autotuner_rapids_args()
+        return super()._init_rapids_arg_list()
 
     def _infer_cluster_per_app(self, cluster_info_df: pd.DataFrame,
                                cluster_type: ClusterType) -> Dict[str, Optional[ClusterBase]]:
